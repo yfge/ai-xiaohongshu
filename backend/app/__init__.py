@@ -1,0 +1,1 @@
+"""AI Xiaohongshu backend package."""

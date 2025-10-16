@@ -1,0 +1,10 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+printf '%s\n' 'husky - running pre-commit checks'
+pre-commit run --hook-stage commit --all-files || exit 1
+
+if [ -f "frontend/package.json" ]; then
+  printf '%s\n' 'husky - running frontend lint'
+  (cd frontend && (pnpm lint || npm run lint)) || exit 1
+fi

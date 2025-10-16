@@ -1,0 +1,6 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+printf '%s\n' 'husky - validating commit message'
+
+npx --yes @commitlint/cli@19.3.0 --edit "$1"

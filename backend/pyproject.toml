@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-xiaohongshu-backend"
+version = "0.1.0"
+description = "Backend service for the AI Xiaohongshu project"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "AI Xiaohongshu Team" }
+]
+dependencies = [
+  "fastapi>=0.111.0",
+  "uvicorn[standard]>=0.29.0",
+  "pydantic-settings>=2.3.0",
+  "python-multipart>=0.0.9",
+  "volcengine-python-sdk[ark]>=4.0.24",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.27.0",
+  "pytest>=8.3.0",
+  "respx>=0.21.1",
+]
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "B", "UP"]
+target-version = "py311"
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]

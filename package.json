@@ -1,0 +1,20 @@
+{
+  "name": "ai-xiaohongshu",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.12.2",
+  "workspaces": ["frontend"],
+  "scripts": {
+    "prepare": "husky install",
+    "lint": "pnpm --filter frontend lint",
+    "format": "pnpm --filter frontend format",
+    "dev": "pnpm --filter frontend dev"
+  },
+  "devDependencies": {
+    "husky": "9.1.6",
+    "lint-staged": "15.2.9"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,css,md,json,yaml,yml}": "pnpm --filter frontend exec prettier --write"
+  }
+}
