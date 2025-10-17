@@ -61,6 +61,19 @@ class Settings(BaseSettings):
     ark_prompt_max_count: int = Field(default=6, env="ARK_PROMPT_MAX_COUNT")
     ark_image_size: str = Field(default="1024x1024", env="ARK_IMAGE_SIZE")
     ark_request_timeout: float = Field(default=120.0, env="ARK_REQUEST_TIMEOUT")
+    ark_retry_attempts: int = Field(default=2, env="ARK_RETRY_ATTEMPTS")
+    ark_retry_backoff_seconds: float = Field(
+        default=1.5, env="ARK_RETRY_BACKOFF_SECONDS"
+    )
+    collage_allowed_mime_prefixes: tuple[str, ...] = Field(
+        default=("image/",), env="COLLAGE_ALLOWED_MIME_PREFIXES"
+    )
+    collage_upload_max_bytes: int = Field(
+        default=5 * 1024 * 1024, env="COLLAGE_UPLOAD_MAX_BYTES"
+    )
+    agent_run_store_path: str = Field(
+        default="storage/agent_runs.jsonl", env="AGENT_RUN_STORE_PATH"
+    )
 
 
 @lru_cache

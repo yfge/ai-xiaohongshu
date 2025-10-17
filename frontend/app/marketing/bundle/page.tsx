@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { Loader2, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
 
@@ -39,7 +39,11 @@ export default function MarketingBundlePage(): JSX.Element {
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<ResultItem[]>([]);
+  const [progressMessage, setProgressMessage] = useState<string | null>(null);
+  const [resultErrors, setResultErrors] = useState<Record<number, string>>({});
+  const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [isRegenerating, startRegeneration] = useTransition();
 
   const fileSummaries = useMemo(
     () =>
@@ -54,6 +58,7 @@ export default function MarketingBundlePage(): JSX.Element {
   useEffect(() => {
     if (!files.length) {
       setResults([]);
+      setResultErrors({});
     }
   }, [files]);
 
@@ -72,6 +77,8 @@ export default function MarketingBundlePage(): JSX.Element {
     startTransition(async () => {
       setError(null);
       setResults([]);
+      setResultErrors({});
+      setProgressMessage("正在生成 Ark 提示词与图像…");
 
       const formData = new FormData();
       formData.append("prompt", prompt.trim());
@@ -88,7 +95,7 @@ export default function MarketingBundlePage(): JSX.Element {
 
         if (!response.ok) {
           const detail = await safeParseError(response);
-          throw new Error(detail ?? "生成失败，请稍后重试");
+          throw new Error(formatErrorMessage(response.status, detail));
         }
 
         const payload = (await response.json()) as MarketingResponse;
@@ -99,6 +106,70 @@ export default function MarketingBundlePage(): JSX.Element {
         setResults(nextResults);
       } catch (err) {
         setError(err instanceof Error ? err.message : "生成失败，请稍后再试");
+      } finally {
+        setProgressMessage(null);
+      }
+    });
+  };
+
+  const handleRegenerate = (index: number) => {
+    if (!files.length) {
+      setResultErrors((prev) => ({
+        ...prev,
+        [index]: "请先上传参考图后再试",
+      }));
+      return;
+    }
+
+    startRegeneration(async () => {
+      setRegeneratingIndex(index);
+      setResultErrors((prev) => {
+        const next = { ...prev };
+        delete next[index];
+        return next;
+      });
+      setProgressMessage(`正在重新生成第 ${index + 1} 张图…`);
+
+      const formData = new FormData();
+      formData.append("prompt", prompt.trim());
+      formData.append("count", "1");
+      files.forEach((file) => {
+        formData.append("images", file);
+      });
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/marketing/collage`, {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const detail = await safeParseError(response);
+          throw new Error(formatErrorMessage(response.status, detail));
+        }
+
+        const payload = (await response.json()) as MarketingResponse;
+        const [replacement] = payload.images;
+        if (!replacement) {
+          throw new Error("Ark 未返回新的图像结果");
+        }
+
+        const nextItem: ResultItem = {
+          ...replacement,
+          previewSrc: resolvePreviewSource(replacement),
+        };
+
+        setResults((prev) =>
+          prev.map((item, itemIndex) => (itemIndex === index ? nextItem : item)),
+        );
+      } catch (err) {
+        setResultErrors((prev) => ({
+          ...prev,
+          [index]: err instanceof Error ? err.message : "重新生成失败，请稍后重试",
+        }));
+      } finally {
+        setRegeneratingIndex(null);
+        setProgressMessage(null);
       }
     });
   };
@@ -181,6 +252,13 @@ export default function MarketingBundlePage(): JSX.Element {
             将调用火山引擎 Ark 模型生成 {count} 组提示词与图像。
           </span>
         </div>
+
+        {(isPending || isRegenerating || progressMessage) && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>{progressMessage ?? "Ark 正在处理中，请稍候…"}</span>
+          </div>
+        )}
       </form>
 
       {!!results.length && (
@@ -232,6 +310,34 @@ export default function MarketingBundlePage(): JSX.Element {
                     </div>
                   )}
                 </div>
+                <div className="flex flex-col gap-2 border-t border-border/50 pt-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleRegenerate(index)}
+                      disabled={isPending || isRegenerating}
+                    >
+                      {regeneratingIndex === index ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          重新生成中
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="mr-2 h-4 w-4" />
+                          重新生成
+                        </>
+                      )}
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      若生成效果不理想，可快速替换单个画面。
+                    </span>
+                  </div>
+                  {resultErrors[index] && (
+                    <p className="text-sm text-destructive/80">{resultErrors[index]}</p>
+                  )}
+                </div>
               </article>
             ))}
           </div>
@@ -249,6 +355,19 @@ function resolvePreviewSource(item: GeneratedImage): string | null {
     return item.image_url;
   }
   return null;
+}
+
+function formatErrorMessage(status: number, detail: string | null): string {
+  if (status === 413) {
+    return detail ?? "上传的图片超过大小限制，请压缩后重试。";
+  }
+  if (status === 400) {
+    return detail ?? "提交的参数存在问题，请检查后再试。";
+  }
+  if (status >= 500) {
+    return detail ?? "生成服务暂时不可用，请稍后再试。";
+  }
+  return detail ?? "生成失败，请稍后再试";
 }
 
 async function safeParseError(response: Response): Promise<string | null> {

@@ -11,6 +11,7 @@ pytestmark = pytest.mark.anyio("asyncio")
 from app.core.config import Settings
 from app.schemas.marketing import MarketingGenerationResponse
 from app.services import marketing
+from app.services.agent_runs import AgentRunRecord
 from app.services.marketing import (
     ArkConfigurationError,
     ArkServiceError,
@@ -43,9 +44,9 @@ class _StubImages:
 
 
 class _StubArk:
-    def __init__(self, payload: dict) -> None:
+    def __init__(self, payload: dict, images: _StubImages | None = None) -> None:
         self.chat = _StubChat(payload)
-        self.images = _StubImages(
+        self.images = images or _StubImages(
             image_url="https://ark.fake/image.png",
             b64="ZmFrZS1pbWFnZS1ieXRlcw==",
             size="1024x1024",
@@ -81,6 +82,28 @@ class _StubImageResponse:
         self.data = [self._Image(url, b64, size)]
 
 
+class _RecorderStub:
+    def __init__(self) -> None:
+        self.records: list[AgentRunRecord] = []
+
+    async def record(self, record: AgentRunRecord) -> None:
+        self.records.append(record)
+
+
+class _PartialImages:
+    def __init__(self, image_url: str, b64: str, size: str) -> None:
+        self._image_url = image_url
+        self._b64 = b64
+        self._size = size
+        self._calls = 0
+
+    async def generate(self, **_: object):  # type: ignore[override]
+        self._calls += 1
+        if self._calls <= 3:
+            raise RuntimeError("temporary ark outage")
+        return _StubImageResponse(self._image_url, self._b64, self._size)
+
+
 async def test_generate_collage_success(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = {
         "prompts": [
@@ -100,7 +123,12 @@ async def test_generate_collage_success(monkeypatch: pytest.MonkeyPatch) -> None
 
     monkeypatch.setattr(marketing, "async_ark_client", fake_client)
 
-    settings = Settings(ark_api_key="test", ark_prompt_max_count=3)
+    settings = Settings(
+        ark_api_key="test",
+        ark_prompt_max_count=3,
+        ark_retry_attempts=0,
+        ark_retry_backoff_seconds=0,
+    )
     service = MarketingCollageService(settings)
     uploaded = [
         UploadedImage(filename="demo.png", content_type="image/png", data=b"fake-bytes")
@@ -149,3 +177,91 @@ async def test_generate_collage_exceeds_max_count(monkeypatch: pytest.MonkeyPatc
 
     with pytest.raises(ArkServiceError):
         await service.generate_collage(brief="test", count=3, uploaded_images=uploaded)
+
+
+async def test_generate_collage_records_agent_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = {
+        "prompts": [
+            {
+                "title": "夏日露营",
+                "prompt": "summer camping prompt",
+                "description": "户外露营场景",
+                "hashtags": ["露营", "夏日"],
+            }
+        ]
+    }
+
+    @asynccontextmanager
+    async def fake_client(_: Settings):
+        client = _StubArk(payload)
+        yield client
+
+    monkeypatch.setattr(marketing, "async_ark_client", fake_client)
+
+    recorder = _RecorderStub()
+    settings = Settings(ark_api_key="test", ark_prompt_max_count=3)
+    service = MarketingCollageService(settings, recorder=recorder)
+    uploaded = [
+        UploadedImage(filename="demo.png", content_type="image/png", data=b"fake-bytes")
+    ]
+
+    await service.generate_collage(brief="夏日露营", count=1, uploaded_images=uploaded)
+
+    assert len(recorder.records) == 1
+    record = recorder.records[0]
+    assert record.agent_id == "CollageAgent"
+    assert record.status == "success"
+    assert record.prompt_count == 1
+    assert record.image_count == 1
+    assert record.metadata["count"] == 1
+    assert record.metadata["failed_prompts"] == []
+
+
+async def test_generate_collage_partial_image_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = {
+        "prompts": [
+            {
+                "title": "场景一",
+                "prompt": "prompt one",
+                "description": None,
+                "hashtags": [],
+            },
+            {
+                "title": "场景二",
+                "prompt": "prompt two",
+                "description": None,
+                "hashtags": [],
+            },
+        ]
+    }
+
+    @asynccontextmanager
+    async def fake_client(_: Settings):
+        client = _StubArk(
+            payload,
+            images=_PartialImages(
+                image_url="https://ark.fake/partial.png",
+                b64="cGFydGlhbC1zdWNjZXNz",
+                size="1024x1024",
+            ),
+        )
+        yield client
+
+    monkeypatch.setattr(marketing, "async_ark_client", fake_client)
+
+    recorder = _RecorderStub()
+    settings = Settings(ark_api_key="test", ark_prompt_max_count=3)
+    service = MarketingCollageService(settings, recorder=recorder)
+    uploaded = [
+        UploadedImage(filename="demo.png", content_type="image/png", data=b"fake-bytes")
+    ]
+
+    result = await service.generate_collage(brief="两组提示", count=2, uploaded_images=uploaded)
+
+    assert len(result.prompts) == 2
+    assert len(result.images) == 1
+    assert result.images[0].image_base64 == "cGFydGlhbC1zdWNjZXNz"
+
+    assert len(recorder.records) == 1
+    failed_prompts = recorder.records[0].metadata["failed_prompts"]
+    assert failed_prompts == ["场景一"]

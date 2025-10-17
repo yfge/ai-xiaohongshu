@@ -26,6 +26,20 @@ Orchestrator 负责编排与状态管理，可选择「顺序工作流」或「�
 1. 顺序模式适合冷启动：从调研到分发逐步推进；
 2. 事件模式适合持续运营：当新数据到来时触发局部 Agent 重新运行。
 
+## Orchestrator 实现
+
+- 核心实现位于 `backend/app/services/orchestrator.py`，提供 `AgentOrchestrator` 类。
+- 通过 `register(agent_id, handler)` 顺序注册需要执行的 Agent，`handler` 接收/返回上下文字典。
+- 执行 `run(initial_context)` 后会依次调用每个 Agent，并将结果聚合在上下文中（键名为 Agent ID）。
+- 若注入 `AgentRunRecorder`，每个步骤会自动写入 `agent_runs.jsonl`，包含 request_id、耗时与输出要点，方便复盘。
+- 示例：
+  ```python
+  orchestrator = AgentOrchestrator(recorder=recorder)
+  orchestrator.register(agent_id="ResearchAgent", handler=run_research)
+  orchestrator.register(agent_id="PlanningAgent", handler=run_planning)
+  context = await orchestrator.run({"brief": brief_payload})
+  ```
+
 ## CollageAgent 设计要点
 
 - 输入：创意简报（prompt）、目标数量 N、参考图列表。
@@ -62,4 +76,3 @@ Orchestrator 负责编排与状态管理，可选择「顺序工作流」或「�
 - 建立统一的指标埋点 SDK，将 Agent 结果自动同步到监控平台；
 - 引入权限系统，实现不同团队角色对 Agent 操作的细粒度控制；
 - 与自动化部署（如 Airflow、Temporal）集成，实现定时或事件触发的 Agent Pipeline。
-

@@ -4,7 +4,16 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from volcenginesdkarkruntime import AsyncArk
+try:  # pragma: no cover - optional dependency fallback for local dev/tests
+    from volcenginesdkarkruntime import AsyncArk
+except ModuleNotFoundError:  # pragma: no cover
+    class AsyncArk:  # type: ignore[override]
+        """Placeholder to surface a clear error if the SDK is missing at runtime."""
+
+        def __init__(self, *_: object, **__: object) -> None:  # noqa: D401 - docstring above
+            raise ModuleNotFoundError(
+                "volcenginesdkarkruntime is required. Install the volcengine SDK to call Ark APIs."
+            )
 
 from app.core.config import Settings
 
