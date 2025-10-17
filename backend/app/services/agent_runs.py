@@ -6,7 +6,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Iterable, List, Optional
 
 
 @dataclass(slots=True)
@@ -55,16 +55,24 @@ class AgentRunRepository:
         self._path = Path(path)
 
     async def list_runs(
-        self, *, limit: int = 50, offset: int = 0
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        agent_id: str | None = None,
+        status: str | None = None,
+        since: datetime | None = None,
     ) -> tuple[list[AgentRunRecord], int]:
         if limit <= 0:
             return [], 0
 
         records = await asyncio.to_thread(self._read_all)
-        total = len(records)
+        filtered = _apply_filters(records, agent_id=agent_id, status=status, since=since)
+
+        total = len(filtered)
         start = min(offset, total)
         end = min(start + limit, total)
-        return records[start:end], total
+        return filtered[start:end], total
 
     def _read_all(self) -> list[AgentRunRecord]:
         if not self._path.exists():
@@ -98,6 +106,30 @@ def _record_from_dict(payload: dict[str, Any]) -> AgentRunRecord:
         metadata=payload.get("metadata", {}),
         created_at=payload.get("created_at", datetime.now(timezone.utc).isoformat()),
     )
+
+
+def _apply_filters(
+    records: Iterable[AgentRunRecord],
+    *,
+    agent_id: str | None,
+    status: str | None,
+    since: datetime | None,
+) -> List[AgentRunRecord]:
+    filtered: List[AgentRunRecord] = []
+    for record in records:
+        if agent_id and record.agent_id != agent_id:
+            continue
+        if status and record.status != status:
+            continue
+        if since:
+            try:
+                created = datetime.fromisoformat(record.created_at)
+            except ValueError:
+                continue
+            if created < since:
+                continue
+        filtered.append(record)
+    return filtered
 
 
 __all__ = ["AgentRunRecorder", "AgentRunRepository", "AgentRunRecord"]

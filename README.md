@@ -74,7 +74,8 @@ pre-commit install
 ## 可观测性与日志
 
 - CollageAgent 及 Orchestrator 会把执行记录写入 `AGENT_RUN_STORE_PATH` 指定的 JSONL 文件。
-- 通过 `GET /api/agent-runs?limit=50&offset=0` 获取最新的执行记录，可在前端/BI 面板中接入展示。
+- 通过 `GET /api/agent-runs` 获取最新执行记录，支持 `agent_id`、`status`、`since` 等过滤，可在前端/BI 面板中接入展示。
+- 前端页面 `/agent-runs` 提供可视化仪表盘，支持在线筛选与分页浏览。
 - 响应包含 `runs`（按时间倒序）、分页参数以及结构化的 `metadata` 字段，便于诊断 Ark 调用耗时与失败。
 
 ## Agents 文档

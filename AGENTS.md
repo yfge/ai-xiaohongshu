@@ -28,7 +28,7 @@
 
 - **Orchestrator**：负责任务调度、状态流转、并发/重试策略，可支持顺序与事件驱动两种模式。
 - **Agent Orchestrator Skeleton**：`backend/app/services/orchestrator.py` 提供最小可用的顺序编排器，可按 `register → run` 的方式串联 Research → Planning → Creation 等 Agent，并复用 `agent_runs` 记录执行轨迹。
-- **Agent Run API**：`GET /api/agent-runs` 可查询最新执行记录，为前端监控或 BI 面板提供数据源。
+- **Agent Run API**：`GET /api/agent-runs` 支持 `agent_id`、`status`、`since` 过滤，为前端监控或 BI 面板提供数据源；前端 `/agent-runs` 页面内置可视化面板。
 - **Shared Services**：
   - `backend/app/services/marketing.py`：封装 Ark 模型调用、日志与指标采集。
   - `backend/app/core/config.py`：统一管理 Prompt 模板、模型 ID、阈值。

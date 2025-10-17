@@ -1,7 +1,7 @@
 """Tests for reading agent run records."""
 from __future__ import annotations
 
-import asyncio
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -22,6 +22,7 @@ async def test_repository_lists_runs(tmp_path: Path) -> None:
             input_hash="hash-1",
             prompt_count=2,
             image_count=2,
+            created_at="2024-07-01T00:00:00+00:00",
         )
     )
     await recorder.record(
@@ -34,6 +35,7 @@ async def test_repository_lists_runs(tmp_path: Path) -> None:
             prompt_count=0,
             image_count=0,
             error="boom",
+            created_at="2024-07-02T00:00:00+00:00",
         )
     )
 
@@ -44,6 +46,20 @@ async def test_repository_lists_runs(tmp_path: Path) -> None:
     assert len(runs) == 2
     assert runs[0].request_id == "req-2"
     assert runs[1].request_id == "req-1"
+
+    filtered, total_filtered = await repository.list_runs(agent_id="CollageAgent")
+    assert total_filtered == 1
+    assert filtered[0].request_id == "req-1"
+
+    status_filtered, _ = await repository.list_runs(status="failed")
+    assert len(status_filtered) == 1
+    assert status_filtered[0].request_id == "req-2"
+
+    since_filtered, _ = await repository.list_runs(
+        since=datetime.fromisoformat("2024-07-02T00:00:00+00:00")
+    )
+    assert len(since_filtered) == 1
+    assert since_filtered[0].request_id == "req-2"
 
 
 @pytest.mark.anyio

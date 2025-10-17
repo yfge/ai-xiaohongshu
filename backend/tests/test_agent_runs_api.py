@@ -35,6 +35,20 @@ def client_fixture(tmp_path: Path) -> TestClient:
                 input_hash="hash-1",
                 prompt_count=2,
                 image_count=2,
+                created_at="2024-07-02T00:00:00+00:00",
+            )
+        )
+        await recorder.record(
+            AgentRunRecord(
+                agent_id="ResearchAgent",
+                request_id="req-2",
+                status="failed",
+                duration_ms=8,
+                input_hash="hash-2",
+                prompt_count=0,
+                image_count=0,
+                error="boom",
+                created_at="2024-07-01T00:00:00+00:00",
             )
         )
 
@@ -51,5 +65,21 @@ def test_list_agent_runs_returns_records(client: TestClient) -> None:
     response = client.get("/api/agent-runs")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["total"] >= 1
-    assert payload["runs"][0]["agent_id"] == "CollageAgent"
+    assert payload["total"] == 2
+    assert payload["runs"][0]["request_id"] == "req-1"
+
+
+def test_list_agent_runs_supports_filters(client: TestClient) -> None:
+    response = client.get("/api/agent-runs", params={"agent_id": "ResearchAgent"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["runs"][0]["request_id"] == "req-2"
+
+    response = client.get(
+        "/api/agent-runs",
+        params={"status": "success", "since": "2024-07-01T12:00:00+00:00"},
+    )
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["runs"][0]["request_id"] == "req-1"
