@@ -49,6 +49,7 @@ pnpm dev
 | `ARK_PROMPT_MODEL` | 提示词 JSON 模型端点 ID |
 | `ARK_IMAGE_MODEL` | 图像生成模型端点 ID |
 | `ARK_IMAGE_SIZE` | 可选，输出尺寸，默认 `1024x1024` |
+| `AGENT_RUN_STORE_PATH` | 可选，Agent 执行日志 JSONL 存储路径，默认 `storage/agent_runs.jsonl` |
 
 前端可通过环境变量 `NEXT_PUBLIC_API_BASE_URL` 指定后端地址，默认指向 `http://localhost:8000/api`。
 
@@ -70,7 +71,12 @@ pre-commit install
 
 详见 `docs/marketing_collage.md`，包含 Ark 配置、接口说明与调试指引。
 
+## 可观测性与日志
+
+- CollageAgent 及 Orchestrator 会把执行记录写入 `AGENT_RUN_STORE_PATH` 指定的 JSONL 文件。
+- 通过 `GET /api/agent-runs?limit=50&offset=0` 获取最新的执行记录，可在前端/BI 面板中接入展示。
+- 响应包含 `runs`（按时间倒序）、分页参数以及结构化的 `metadata` 字段，便于诊断 Ark 调用耗时与失败。
+
 ## Agents 文档
 
 详见 `docs/agents/README.md`，其中包含 Agent 拓扑、Prompt 规范、状态管理与本地调试流程。
-

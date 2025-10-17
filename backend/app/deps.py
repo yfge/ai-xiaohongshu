@@ -6,7 +6,7 @@ from fastapi import Depends
 from functools import lru_cache
 
 from app.core.config import Settings, get_settings
-from app.services.agent_runs import AgentRunRecorder
+from app.services.agent_runs import AgentRunRecorder, AgentRunRepository
 from app.services.marketing import MarketingCollageService
 
 
@@ -21,6 +21,14 @@ def get_agent_run_recorder(
     """Return a shared AgentRunRecorder instance."""
 
     return _create_agent_run_recorder(settings.agent_run_store_path)
+
+
+def get_agent_run_repository(
+    settings: Settings = Depends(get_settings),
+) -> AgentRunRepository:
+    """Return a repository for reading agent run records."""
+
+    return AgentRunRepository(settings.agent_run_store_path)
 
 
 def get_marketing_service(
