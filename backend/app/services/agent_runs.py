@@ -8,6 +8,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+from sqlalchemy import Select, func, select
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from app.db import models
+
 
 @dataclass(slots=True)
 class AgentRunRecord:
@@ -132,4 +137,103 @@ def _apply_filters(
     return filtered
 
 
-__all__ = ["AgentRunRecorder", "AgentRunRepository", "AgentRunRecord"]
+class AgentRunSQLRecorder:
+    """Persist agent runs into a SQL database."""
+
+    def __init__(self, session_maker: async_sessionmaker) -> None:
+        self._session_maker = session_maker
+
+    async def record(self, record: AgentRunRecord) -> None:
+        created_at = _parse_created_at(record.created_at)
+        async with self._session_maker() as session:
+            session.add(
+                models.AgentRun(
+                    agent_id=record.agent_id,
+                    request_id=record.request_id,
+                    status=record.status,
+                    duration_ms=record.duration_ms,
+                    input_hash=record.input_hash,
+                    prompt_count=record.prompt_count,
+                    image_count=record.image_count,
+                    error=record.error,
+                    metadata_json=record.metadata or None,
+                    created_at=created_at,
+                )
+            )
+            await session.commit()
+
+
+class AgentRunSQLRepository:
+    """Query agent run history from SQL storage."""
+
+    def __init__(self, session_maker: async_sessionmaker) -> None:
+        self._session_maker = session_maker
+
+    async def list_runs(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        agent_id: str | None = None,
+        status: str | None = None,
+        since: datetime | None = None,
+    ) -> tuple[list[AgentRunRecord], int]:
+        if limit <= 0:
+            return [], 0
+
+        filters = []
+        if agent_id:
+            filters.append(models.AgentRun.agent_id == agent_id)
+        if status:
+            filters.append(models.AgentRun.status == status)
+        if since:
+            filters.append(models.AgentRun.created_at >= since)
+
+        stmt: Select[models.AgentRun] = (
+            select(models.AgentRun)
+            .where(*filters)
+            .order_by(models.AgentRun.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        count_stmt = select(func.count(models.AgentRun.id)).where(*filters)
+
+        async with self._session_maker() as session:
+            rows = (await session.execute(stmt)).scalars().all()
+            total = (await session.execute(count_stmt)).scalar_one()
+
+        records = [_from_model(row) for row in rows]
+        return records, int(total)
+
+
+def _parse_created_at(value: str) -> datetime:
+    try:
+        normalized = value.replace("Z", "+00:00")
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return datetime.now(timezone.utc)
+
+
+def _from_model(model: models.AgentRun) -> AgentRunRecord:
+    created_at = model.created_at.isoformat() if model.created_at else datetime.now(timezone.utc).isoformat()
+    return AgentRunRecord(
+        agent_id=model.agent_id,
+        request_id=model.request_id,
+        status=model.status,
+        duration_ms=model.duration_ms,
+        input_hash=model.input_hash,
+        prompt_count=model.prompt_count,
+        image_count=model.image_count,
+        error=model.error,
+        metadata=model.metadata_json or {},
+        created_at=created_at,
+    )
+
+
+__all__ = [
+    "AgentRunRecorder",
+    "AgentRunRepository",
+    "AgentRunRecord",
+    "AgentRunSQLRecorder",
+    "AgentRunSQLRepository",
+]

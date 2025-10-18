@@ -75,7 +75,7 @@
 - **持久化**：
   - 临时会话与工作流状态 → Redis / 内存。
   - 长期素材（图像、脚本）→ 对象存储 / CDN。
-  - 指标与复盘 → PostgreSQL / BI 系统。
+  - 指标与复盘 → MySQL（`DATABASE_URL` 配置）/ BI 系统；如未配置数据库则回退 JSONL。
 - **可追溯性**：统一以 `agent_runs` 表记录执行历史，字段包括 `agent_id`、`input_hash`、`output_ref`、`duration_ms`。
 
 ## 6. 流程示例：营销组图工作流

@@ -50,6 +50,8 @@ pnpm dev
 | `ARK_IMAGE_MODEL` | 图像生成模型端点 ID |
 | `ARK_IMAGE_SIZE` | 可选，输出尺寸，默认 `1024x1024` |
 | `AGENT_RUN_STORE_PATH` | 可选，Agent 执行日志 JSONL 存储路径，默认 `storage/agent_runs.jsonl` |
+| `DATABASE_URL` | 可选，数据库连接串（推荐 MySQL，如 `mysql+aiomysql://user:pass@host:3306/ai_xiaohongshu`）|
+| `DATABASE_ECHO` | 可选，SQLAlchemy 是否回显 SQL 语句，默认 `False` |
 
 前端可通过环境变量 `NEXT_PUBLIC_API_BASE_URL` 指定后端地址，默认指向 `http://localhost:8000/api`。
 
@@ -71,10 +73,15 @@ pre-commit install
 
 详见 `docs/marketing_collage.md`，包含 Ark 配置、接口说明与调试指引。
 
-## 可观测性与日志
+## 数据库与可观测性
 
-- CollageAgent 及 Orchestrator 会把执行记录写入 `AGENT_RUN_STORE_PATH` 指定的 JSONL 文件。
-- 通过 `GET /api/agent-runs` 获取最新执行记录，支持 `agent_id`、`status`、`since` 等过滤，可在前端/BI 面板中接入展示。
+- 如果配置了 `DATABASE_URL`，系统会使用 SQLAlchemy + MySQL（或任意兼容的数据库）持久化 Agent 执行记录；如未配置则回退至 JSONL 存储。
+- 初始化数据库后运行迁移：
+  ```bash
+  cd backend
+  alembic upgrade head
+  ```
+- CollageAgent 与 Orchestrator 会写入执行日志，可通过 `GET /api/agent-runs` 获取，支持 `agent_id`、`status`、`since` 等过滤。
 - 前端页面 `/agent-runs` 提供可视化仪表盘，支持在线筛选与分页浏览。
 - 响应包含 `runs`（按时间倒序）、分页参数以及结构化的 `metadata` 字段，便于诊断 Ark 调用耗时与失败。
 

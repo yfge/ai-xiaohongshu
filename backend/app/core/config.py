@@ -74,6 +74,8 @@ class Settings(BaseSettings):
     agent_run_store_path: str = Field(
         default="storage/agent_runs.jsonl", env="AGENT_RUN_STORE_PATH"
     )
+    database_url: Optional[str] = Field(default=None, env="DATABASE_URL")
+    database_echo: bool = Field(default=False, env="DATABASE_ECHO")
 
 
 @lru_cache
