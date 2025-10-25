@@ -29,12 +29,9 @@ def upgrade() -> None:
             sa.DateTime(timezone=True),
             nullable=False,
             server_default=sa.func.now(),
+            index=True,
         ),
     )
-    op.create_index("ix_agent_runs_agent_id", "agent_runs", ["agent_id"])
-    op.create_index("ix_agent_runs_status", "agent_runs", ["status"])
-    op.create_index("ix_agent_runs_created_at", "agent_runs", ["created_at"])
-    op.create_index("ix_agent_runs_input_hash", "agent_runs", ["input_hash"])
 
 
 def downgrade() -> None:
