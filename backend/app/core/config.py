@@ -76,6 +76,28 @@ class Settings(BaseSettings):
     )
     database_url: Optional[str] = Field(default=None, env="DATABASE_URL")
     database_echo: bool = Field(default=False, env="DATABASE_ECHO")
+    # Basic auth for admin endpoints (optional)
+    auth_basic_username: Optional[str] = Field(default=None, env="AUTH_BASIC_USERNAME")
+    auth_basic_password_hash: Optional[str] = Field(
+        default=None, env="AUTH_BASIC_PASSWORD_HASH"
+    )
+    auth_basic_password_plain: Optional[str] = Field(
+        default=None, env="AUTH_BASIC_PASSWORD_PLAIN"
+    )
+    # Stores for API keys and audit logs (JSONL fallback)
+    api_key_store_path: str = Field(
+        default="storage/api_keys.jsonl", env="API_KEY_STORE_PATH"
+    )
+    audit_log_store_path: str = Field(
+        default="storage/audit_logs.jsonl", env="AUDIT_LOG_STORE_PATH"
+    )
+    # API key rate limiting
+    api_key_rate_window_seconds: int = Field(
+        default=60, env="API_KEY_RATE_WINDOW_SECONDS"
+    )
+    api_key_rate_max_requests: int = Field(
+        default=60, env="API_KEY_RATE_MAX_REQUESTS"
+    )
 
 
 @lru_cache
