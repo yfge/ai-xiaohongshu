@@ -107,6 +107,7 @@ pre-commit install
 - `/admin/api-keys`：简单的 API Key 管理界面（创建、列表、启/停），需要输入 Basic 用户名密码后操作。仅用于本地/内网环境，不建议在生产环境暴露。
 - `/admin/audit-logs`：审计日志查看（可按 Actor 类型、时间、数量过滤）。
   - 支持条件：`actor_type`、`since`、`method`、`status_code`、`path_prefix`；展示耗时与请求/响应字节数。
+  - 支持分页（limit/offset）、按 `request_id` 一键链路查看、导出 JSON/CSV。
 
 ## Agents 文档
 

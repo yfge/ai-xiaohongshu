@@ -123,4 +123,5 @@ Frontend
 - 审计：全局中间件落 JSONL（actor、路径、方法、状态），`AUDIT_LOG_STORE_PATH` 指定路径。
 - 审计 SQL：启用 `DATABASE_URL` 可将审计写入 `audit_logs` 表，通过 `GET /api/admin/audit-logs` 列表查看。
 - 限流：对外 API 按 API Key 执行限流（`API_KEY_RATE_WINDOW_SECONDS`/`API_KEY_RATE_MAX_REQUESTS`）。超限返回 429。
- - 审计增强：记录 `duration_ms`、`req_bytes`、`res_bytes`；列表支持 `method`、`status_code`、`path_prefix`、`request_id` 等过滤。
+- 审计增强：记录 `duration_ms`、`req_bytes`、`res_bytes`；列表支持 `method`、`status_code`、`path_prefix`、`request_id` 等过滤。
+ - 前端管理：`/admin/audit-logs` 支持分页（limit/offset）、按 `request_id` 链路查看，以及导出 JSON/CSV。
