@@ -17,6 +17,9 @@ type AuditLog = {
   ip?: string | null;
   user_agent?: string | null;
   created_at: string;
+  duration_ms?: number | null;
+  req_bytes?: number | null;
+  res_bytes?: number | null;
 };
 
 export default function AuditLogsAdmin(): JSX.Element {
@@ -28,6 +31,8 @@ export default function AuditLogsAdmin(): JSX.Element {
   const [status, setStatus] = useState("");
   const [pathPrefix, setPathPrefix] = useState("");
   const [limit, setLimit] = useState(50);
+  const [offset, setOffset] = useState(0);
+  const [requestIdFilter, setRequestIdFilter] = useState("");
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -45,11 +50,12 @@ export default function AuditLogsAdmin(): JSX.Element {
         setError("请先输入 Basic 用户名与密码");
         return;
       }
-      const params = new URLSearchParams({ limit: String(limit) });
+      const params = new URLSearchParams({ limit: String(limit), offset: String(Math.max(0, offset)) });
       if (actorType.trim()) params.set("actor_type", actorType.trim());
       if (method.trim()) params.set("method", method.trim().toUpperCase());
       if (status.trim()) params.set("status_code", status.trim());
       if (pathPrefix.trim()) params.set("path_prefix", pathPrefix.trim());
+      if (requestIdFilter.trim()) params.set("request_id", requestIdFilter.trim());
       if (since) {
         const date = new Date(since);
         if (!Number.isNaN(date.getTime())) params.set("since", date.toISOString());
@@ -69,6 +75,88 @@ export default function AuditLogsAdmin(): JSX.Element {
     if (username && password) void fetchLogs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const canPrev = useMemo(() => offset > 0, [offset]);
+  const canNext = useMemo(() => logs.length >= limit, [logs.length, limit]);
+
+  const goPrev = () => {
+    const next = Math.max(0, offset - limit);
+    setOffset(next);
+    void fetchLogs();
+  };
+
+  const goNext = () => {
+    const next = offset + limit;
+    setOffset(next);
+    void fetchLogs();
+  };
+
+  const clearRequestId = () => {
+    setRequestIdFilter("");
+    setOffset(0);
+    void fetchLogs();
+  };
+
+  const exportJSON = () => {
+    const blob = new Blob([JSON.stringify(logs, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `audit-logs-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  const exportCSV = () => {
+    const headers = [
+      "created_at",
+      "actor_type",
+      "actor_id",
+      "request_id",
+      "method",
+      "path",
+      "status_code",
+      "duration_ms",
+      "req_bytes",
+      "res_bytes",
+      "ip",
+      "user_agent",
+    ];
+    const esc = (v: unknown) => {
+      const s = String(v ?? "");
+      if (s.includes(",") || s.includes("\n") || s.includes('"')) {
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    };
+    const rows = [headers.join(",")].concat(
+      logs.map((l) =>
+        [
+          l.created_at,
+          l.actor_type,
+          l.actor_id,
+          l.request_id,
+          l.method,
+          l.path,
+          l.status_code,
+          l.duration_ms ?? "",
+          l.req_bytes ?? "",
+          l.res_bytes ?? "",
+          l.ip ?? "",
+          l.user_agent ?? "",
+        ]
+          .map(esc)
+          .join(",")
+      )
+    );
+    const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `audit-logs-${Date.now()}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-12">
@@ -130,7 +218,19 @@ export default function AuditLogsAdmin(): JSX.Element {
       )}
 
       <section className="space-y-3">
-        <h2 className="text-xl font-semibold">记录（{logs.length}）</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-semibold">记录（{logs.length}）</h2>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={exportJSON}>导出 JSON</Button>
+            <Button type="button" variant="outline" size="sm" onClick={exportCSV}>导出 CSV</Button>
+          </div>
+        </div>
+        {requestIdFilter && (
+          <div className="rounded-md border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-700">
+            已按 request_id 过滤：<code className="px-1 text-amber-800">{requestIdFilter}</code>
+            <Button className="ml-3" size="sm" variant="outline" onClick={clearRequestId}>清除</Button>
+          </div>
+        )}
         <div className="overflow-x-auto rounded-2xl border border-border bg-card/50 shadow-sm">
           <table className="w-full min-w-max table-auto text-sm">
             <thead className="bg-muted/70 text-muted-foreground">
@@ -163,11 +263,45 @@ export default function AuditLogsAdmin(): JSX.Element {
                     <td className="px-4 py-3 text-xs text-muted-foreground">{`${l.req_bytes ?? "-"} / ${l.res_bytes ?? "-"}`}</td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">{l.ip ?? "-"}</td>
                     <td className="px-4 py-3 text-xs text-muted-foreground truncate max-w-[240px]">{l.user_agent ?? "-"}</td>
+                    <td className="px-4 py-3">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setRequestIdFilter(l.request_id);
+                          setOffset(0);
+                          void fetchLogs();
+                        }}
+                      >
+                        链路
+                      </Button>
+                      <Button
+                        className="ml-2"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => navigator.clipboard.writeText(l.request_id)}
+                      >
+                        复制ID
+                      </Button>
+                    </td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm text-muted-foreground">
+            偏移量 {offset}，每页 {limit}。
+          </div>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={goPrev} disabled={!canPrev || isPending}>
+              上一页
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={goNext} disabled={!canNext || isPending}>
+              下一页
+            </Button>
+          </div>
         </div>
       </section>
     </div>
