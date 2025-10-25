@@ -104,6 +104,7 @@
 - [x] 中间件记录审计日志（actor、路径、方法、状态码、UA、IP），默认写入 JSONL（`AUDIT_LOG_STORE_PATH`）。
 - [x] 数据库落库 `audit_logs`（新增 Alembic 迁移 + 列表 API）。
 - [x] 前端审计查看页：`/admin/audit-logs`（Basic 认证）。
+ - [x] 审计增强：记录 `duration_ms`、`req_bytes`、`res_bytes`；列表支持 `method/status_code/path_prefix/request_id` 与 `offset` 分页；前端支持对应筛选与指标展示。
 
 ### 13. 测试与文档
 - [x] 测试：
