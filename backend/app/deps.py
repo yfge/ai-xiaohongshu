@@ -15,6 +15,7 @@ from app.services.agent_runs import (
     AgentRunSQLRepository,
 )
 from app.services.marketing import MarketingCollageService
+from app.services.audit import AuditLogger, AuditSQLLogger, FileAuditRepository, SQLAuditRepository
 
 
 @lru_cache
@@ -51,3 +52,17 @@ def get_marketing_service(
     """Provide a marketing collage service instance per request."""
 
     return MarketingCollageService(settings, recorder=recorder)
+
+
+def get_audit_logger(settings: Settings) -> AuditLogger | AuditSQLLogger:
+    if settings.database_url:
+        session_maker = get_session_maker(settings)
+        return AuditSQLLogger(session_maker)
+    return AuditLogger(settings.audit_log_store_path)
+
+
+def get_audit_repository(settings: Settings) -> FileAuditRepository | SQLAuditRepository:
+    if settings.database_url:
+        session_maker = get_session_maker(settings)
+        return SQLAuditRepository(session_maker)
+    return FileAuditRepository(settings.audit_log_store_path)

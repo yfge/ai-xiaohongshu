@@ -1,9 +1,18 @@
 """FastAPI application entrypoint for the AI Xiaohongshu backend."""
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app.api.routes import api_router
+from app.core.config import get_settings
+from app.services.audit import AuditRecord
+from app.deps import get_audit_logger
+from app.security import ApiKeyStore
+from app.services.rate_limit import RateLimiter, RateConfig
+
+# Global limiter instance to ensure persistence across requests in tests and dev
+_global_rate_limiter: RateLimiter | None = None
+_global_rate_cfg: tuple[int, int] | None = None
 
 app = FastAPI(title="AI Xiaohongshu API", version="0.1.0")
 
@@ -26,3 +35,68 @@ class HealthResponse(BaseModel):
 async def health_check() -> HealthResponse:
     """Return service health information for monitoring and load-balancers."""
     return HealthResponse()
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    # Use settings override in tests if present
+    settings_override = request.app.dependency_overrides.get(get_settings) if hasattr(request.app, "dependency_overrides") else None  # type: ignore[attr-defined]
+    settings = settings_override() if callable(settings_override) else get_settings()
+
+    # Only enforce for API key calls
+    api_key = request.headers.get("X-API-Key")
+    if not api_key:
+        return await call_next(request)
+
+    # Verify key minimally to ensure validity
+    store = ApiKeyStore(settings.api_key_store_path)
+    rec = store.verify_key(api_key)
+    if not rec:
+        # Let route dependency handle invalid key for consistent error
+        return await call_next(request)
+
+    global _global_rate_limiter, _global_rate_cfg
+    desired_cfg = (int(settings.api_key_rate_window_seconds), int(settings.api_key_rate_max_requests))
+    if _global_rate_limiter is None or _global_rate_cfg != desired_cfg:
+        _global_rate_limiter = RateLimiter(
+            RateConfig(window_seconds=desired_cfg[0], max_requests=desired_cfg[1])
+        )
+        _global_rate_cfg = desired_cfg
+
+    # Use raw API key string as bucket id
+    if not _global_rate_limiter.allow(api_key):  # type: ignore[union-attr]
+        from fastapi import Response
+
+        return Response(status_code=429, content="Too Many Requests")
+
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def audit_middleware(request: Request, call_next):
+    # Respect dependency override for get_settings in tests
+    settings_override = request.app.dependency_overrides.get(get_settings) if hasattr(request.app, "dependency_overrides") else None  # type: ignore[attr-defined]
+    settings = settings_override() if callable(settings_override) else get_settings()
+    logger = get_audit_logger(settings)
+    response = await call_next(request)
+    actor = getattr(request.state, "actor", None) or {"type": "anonymous", "id": "-"}
+    try:
+        ip = request.client.host if request.client else None
+        ua = request.headers.get("user-agent")
+        rid = request.headers.get("x-request-id") or "-"
+        record = AuditRecord(
+            actor_type=str(actor.get("type")),
+            actor_id=str(actor.get("id")),
+            request_id=rid,
+            method=request.method,
+            path=str(request.url.path),
+            status_code=response.status_code,
+            ip=ip,
+            user_agent=ua,
+        )
+        # Fire-and-forget; ensure awaited to satisfy async contract
+        await logger.log(record)
+    except Exception:
+        # Never block or crash request due to audit failure
+        pass
+    return response
