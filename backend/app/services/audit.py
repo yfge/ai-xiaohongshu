@@ -68,6 +68,10 @@ class AuditSQLLogger:
                     status_code=record.status_code,
                     ip=record.ip,
                     user_agent=record.user_agent,
+                    duration_ms=record.metadata.get("duration_ms"),
+                    req_bytes=record.metadata.get("req_bytes"),
+                    res_bytes=record.metadata.get("res_bytes"),
+                    metadata_json=record.metadata or None,
                 )
             )
             await session.commit()
@@ -80,6 +84,11 @@ class AuditRepository:
         limit: int = 50,
         actor_type: str | None = None,
         since: datetime | None = None,
+        method: str | None = None,
+        status_code: int | None = None,
+        path_prefix: str | None = None,
+        request_id: str | None = None,
+        offset: int = 0,
     ) -> list[AuditRecord]:
         raise NotImplementedError
 
@@ -94,6 +103,11 @@ class FileAuditRepository(AuditRepository):
         limit: int = 50,
         actor_type: str | None = None,
         since: datetime | None = None,
+        method: str | None = None,
+        status_code: int | None = None,
+        path_prefix: str | None = None,
+        request_id: str | None = None,
+        offset: int = 0,
     ) -> list[AuditRecord]:
         lines: list[AuditRecord] = []
         if not self._path.exists():
@@ -127,7 +141,17 @@ class FileAuditRepository(AuditRepository):
             lines = [r for r in lines if r.actor_type == actor_type]
         if since:
             lines = [r for r in lines if _parse_datetime(r.created_at) >= since]
-        return lines[: max(1, min(limit, 200))]
+        if method:
+            lines = [r for r in lines if r.method == method]
+        if status_code is not None:
+            lines = [r for r in lines if r.status_code == status_code]
+        if path_prefix:
+            lines = [r for r in lines if r.path.startswith(path_prefix)]
+        if request_id:
+            lines = [r for r in lines if r.request_id == request_id]
+        start = max(0, offset)
+        end = start + max(1, min(limit, 200))
+        return lines[start:end]
 
 
 class SQLAuditRepository(AuditRepository):
@@ -140,16 +164,30 @@ class SQLAuditRepository(AuditRepository):
         limit: int = 50,
         actor_type: str | None = None,
         since: datetime | None = None,
+        method: str | None = None,
+        status_code: int | None = None,
+        path_prefix: str | None = None,
+        request_id: str | None = None,
+        offset: int = 0,
     ) -> list[AuditRecord]:
         filters = []
         if actor_type:
             filters.append(models.AuditLog.actor_type == actor_type)
         if since:
             filters.append(models.AuditLog.created_at >= since)
+        if method:
+            filters.append(models.AuditLog.method == method)
+        if status_code is not None:
+            filters.append(models.AuditLog.status_code == status_code)
+        if path_prefix:
+            filters.append(models.AuditLog.path.like(f"{path_prefix}%"))
+        if request_id:
+            filters.append(models.AuditLog.request_id == request_id)
         stmt: Select[models.AuditLog] = (
             select(models.AuditLog)
             .where(*filters)
             .order_by(models.AuditLog.created_at.desc())
+            .offset(offset)
             .limit(limit)
         )
         async with self._session_maker() as session:
@@ -166,6 +204,11 @@ class SQLAuditRepository(AuditRepository):
                     status_code=row.status_code,
                     ip=row.ip,
                     user_agent=row.user_agent,
+                    metadata={
+                        "duration_ms": row.duration_ms,
+                        "req_bytes": row.req_bytes,
+                        "res_bytes": row.res_bytes,
+                    },
                     created_at=row.created_at.isoformat(),
                 )
             )

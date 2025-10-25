@@ -105,13 +105,21 @@ class AuditLogItem(BaseModel):
     ip: str | None = None
     user_agent: str | None = None
     created_at: str
+    duration_ms: float | None = None
+    req_bytes: int | None = None
+    res_bytes: int | None = None
 
 
 @router.get("/audit-logs", response_model=List[AuditLogItem], summary="列出审计日志")
 async def list_audit_logs(
     limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     actor_type: str | None = Query(None),
     since: str | None = Query(None, description="ISO 时间，返回此时间之后的记录"),
+    method: str | None = Query(None),
+    status_code: int | None = Query(None),
+    path_prefix: str | None = Query(None),
+    request_id: str | None = Query(None),
     _: dict = Depends(require_basic_user),
     settings: Settings = Depends(get_settings),
 ) -> list[AuditLogItem]:
@@ -124,5 +132,23 @@ async def list_audit_logs(
             since_dt = datetime.fromisoformat(since)
         except Exception:
             since_dt = None
-    logs = await repo.list_logs(limit=limit, actor_type=actor_type, since=since_dt)
-    return [AuditLogItem(**asdict(log)) for log in logs]
+    logs = await repo.list_logs(
+        limit=limit,
+        actor_type=actor_type,
+        since=since_dt,
+        method=method,
+        status_code=status_code,
+        path_prefix=path_prefix,
+        request_id=request_id,
+        offset=offset,
+    )
+    items: list[AuditLogItem] = []
+    for log in logs:
+        base = asdict(log)
+        meta = (log.metadata or {})
+        base["duration_ms"] = meta.get("duration_ms")
+        base["req_bytes"] = meta.get("req_bytes")
+        base["res_bytes"] = meta.get("res_bytes")
+        base.pop("metadata", None)
+        items.append(AuditLogItem(**base))
+    return items

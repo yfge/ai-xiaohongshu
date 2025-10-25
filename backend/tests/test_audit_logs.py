@@ -39,6 +39,7 @@ def test_audit_listing_jsonl(tmp_path: Path) -> None:
         logs = resp2.json()
         assert isinstance(logs, list) and logs
         assert any(log.get("path") == "/health" for log in logs)
+        assert any(isinstance(log.get("duration_ms"), (int, float)) for log in logs)
     app.dependency_overrides.pop(get_settings, None)
 
 
@@ -63,4 +64,15 @@ async def test_audit_listing_sql(tmp_path: Path) -> None:
         assert r2.status_code == 200
         logs = r2.json()
         assert logs and any(log.get("path") in {"/health", "/api/admin/audit-logs"} for log in logs)
+        assert any(isinstance(log.get("duration_ms"), (int, float)) for log in logs)
+
+        # Filter by method/status/path prefix
+        r3 = client.get(
+            "/api/admin/audit-logs",
+            params={"method": "GET", "status_code": 200, "path_prefix": "/hea"},
+            headers=_basic_auth("admin", "secret"),
+        )
+        assert r3.status_code == 200
+        filtered = r3.json()
+        assert all(item["method"] == "GET" and item["status_code"] == 200 and item["path"].startswith("/hea") for item in filtered)
     app.dependency_overrides.pop(get_settings, None)

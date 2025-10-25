@@ -78,12 +78,36 @@ async def audit_middleware(request: Request, call_next):
     settings_override = request.app.dependency_overrides.get(get_settings) if hasattr(request.app, "dependency_overrides") else None  # type: ignore[attr-defined]
     settings = settings_override() if callable(settings_override) else get_settings()
     logger = get_audit_logger(settings)
+    # Correlation id
+    request_id = request.headers.get("x-request-id")
+    if not request_id:
+        import uuid
+        request_id = uuid.uuid4().hex
+    # Measure duration
+    import time as _t
+    started = _t.perf_counter()
     response = await call_next(request)
+    elapsed_ms = (_t.perf_counter() - started) * 1000.0
     actor = getattr(request.state, "actor", None) or {"type": "anonymous", "id": "-"}
     try:
         ip = request.client.host if request.client else None
         ua = request.headers.get("user-agent")
-        rid = request.headers.get("x-request-id") or "-"
+        rid = request_id or "-"
+        # Sizes
+        req_bytes = None
+        try:
+            cl = request.headers.get("content-length")
+            if cl is not None:
+                req_bytes = int(cl)
+        except Exception:
+            req_bytes = None
+        res_bytes = None
+        try:
+            res_cl = response.headers.get("content-length")
+            if res_cl is not None:
+                res_bytes = int(res_cl)
+        except Exception:
+            res_bytes = None
         record = AuditRecord(
             actor_type=str(actor.get("type")),
             actor_id=str(actor.get("id")),
@@ -93,10 +117,20 @@ async def audit_middleware(request: Request, call_next):
             status_code=response.status_code,
             ip=ip,
             user_agent=ua,
+            metadata={
+                "duration_ms": elapsed_ms,
+                "req_bytes": req_bytes,
+                "res_bytes": res_bytes,
+            },
         )
         # Fire-and-forget; ensure awaited to satisfy async contract
         await logger.log(record)
     except Exception:
         # Never block or crash request due to audit failure
+        pass
+    # Propagate request id to client
+    try:
+        response.headers["X-Request-Id"] = request_id
+    except Exception:
         pass
     return response
