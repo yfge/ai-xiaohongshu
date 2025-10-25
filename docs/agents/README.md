@@ -45,6 +45,31 @@ Orchestrator 负责编排与状态管理，可选择「顺序工作流」或「�
 - FastAPI 提供 `GET /api/agent-runs` 接口，支持 `limit`/`offset` 分页，并可按 `agent_id`、`status`、`since` 过滤执行记录。
 - 响应中的 `metadata` 会包含生成耗时、失败的 prompt 标题等调试信息，可直接接入前端监控或 BI 系统。
 - 前端页面 `/agent-runs` 提供执行记录表格，快捷筛选与排查异常。
+- 配置 `DATABASE_URL` 后，将同步落库提示词与图片详情，并可通过 `GET /api/agent-runs/{request_id}` 查询该次执行的 Prompts 与 Images 明细。
+
+### 数据流示意图
+
+```
+Frontend (/marketing/bundle)
+   │  上传 prompt + 参考图（multipart/form-data）
+   ▼
+Backend POST /api/marketing/collage
+   │  校验与限流
+   │  ├─ Ark Chat（提示词 JSON）
+   │  └─ Ark Images（按提示词批量生成图片）
+   │
+   ├─ JSONL（无数据库）或 SQL：写入 agent_runs
+   └─ SQL（启用数据库）
+         ├─ agent_run_prompts（提示词明细）
+         └─ agent_run_images（图片明细）
+   │
+   └─ 返回 { prompts, images }
+   
+Frontend
+   │  展示提示词 + 图片预览
+   │  可在 /agent-runs 查看历史（GET /api/agent-runs）
+   └─ 点击某条记录「详情」获取完整明细（GET /api/agent-runs/{request_id}）
+```
 
 ## CollageAgent 设计要点
 
@@ -68,6 +93,9 @@ Orchestrator 负责编排与状态管理，可选择「顺序工作流」或「�
 - 短期状态（单次任务）写入 Redis Stream，方便 Orchestrator 消费；
 - 中长期知识库（案例、模板）存放在向量数据库，并通过 `ResearchAgent` 缓存热点；
 - 所有执行日志优先写入 MySQL `agent_runs` 表（通过 `DATABASE_URL` 配置），字段包括 `agent_id`、`input_hash`、`output_ref`、`duration_ms`；如未配置数据库则退回 JSONL 存储。
+ - 明细表：
+   - `agent_run_prompts`：提示词明细（顺序、标题、内容、hashtags）。
+   - `agent_run_images`：图像明细（顺序、URL/Base64、尺寸、关联 Prompt）。
 
 ## 本地开发流程
 
@@ -82,3 +110,16 @@ Orchestrator 负责编排与状态管理，可选择「顺序工作流」或「�
 - 建立统一的指标埋点 SDK，将 Agent 结果自动同步到监控平台；
 - 引入权限系统，实现不同团队角色对 Agent 操作的细粒度控制；
 - 与自动化部署（如 Airflow、Temporal）集成，实现定时或事件触发的 Agent Pipeline。
+
+## 认证与对外 API
+
+- 管理端认证：HTTP Basic（通过 `AUTH_BASIC_USERNAME` 与 `AUTH_BASIC_PASSWORD_HASH`/`AUTH_BASIC_PASSWORD_PLAIN` 配置）。
+- API Key：
+  - 创建：`POST /api/admin/api-keys`（仅创建时返回明文 Key）。
+  - 列表：`GET /api/admin/api-keys`。
+  - 客户端调用：请求头 `X-API-Key: <prefix>.<secret>`。
+  - Scope 校验：例如 `marketing:collage` 控制营销组图接口访问。
+- 对外接口：`POST /api/external/marketing/collage`，参数与内部一致。
+- 审计：全局中间件落 JSONL（actor、路径、方法、状态），`AUDIT_LOG_STORE_PATH` 指定路径。
+- 审计 SQL：启用 `DATABASE_URL` 可将审计写入 `audit_logs` 表，通过 `GET /api/admin/audit-logs` 列表查看。
+ - 限流：对外 API 按 API Key 执行限流（`API_KEY_RATE_WINDOW_SECONDS`/`API_KEY_RATE_MAX_REQUESTS`）。超限返回 429。

@@ -65,3 +65,48 @@
 2. 初步实现后端 Ark 客户端封装及单元测试。
 3. 搭建前端页面与 UX 流程，再与产品/设计校准。
 4. 集成测试整条链路，关注性能与失败兜底。
+
+## 新增：执行详情持久化与可观测性增强
+
+### 6. 数据结构与迁移
+- [x] 设计 `agent_run_prompts`、`agent_run_images` 等表结构，记录每次 Ark 调用的提示词与生成图像详情。
+- [x] 编写 Alembic 迁移脚本（在现有 `agent_runs` 基础上新增表及索引）。
+
+### 7. 后端数据落库
+- [x] 在 `MarketingCollageService` 中调用 Ark 成功后，将 prompt 与 image 详情写入新表（与 `agent_runs` 同事务）。
+- [x] 扩展 `AgentRunSQLRepository` 或新增仓储，支持按 `request_id` 查询完整的 prompt/image 明细。
+- [x] 新增 `GET /api/agent-runs/{request_id}` 接口返回执行详情，并补充单元/集成测试。
+
+### 8. 前端观测面板
+- [x] 在 `/agent-runs` 页面增加详情抽屉或侧滑组件，展示每条记录的提示词与图片列表。
+ - [x] 支持按 prompt 关键字过滤、下载/复制等便捷操作（可逐步迭代）。
+
+### 9. 文档更新
+- [x] 更新 `README.md`、`docs/agents/README.md`、`AGENTS.md`，说明新的持久化方案、API 及前端入口。
+- [x] 补充数据流示意图，说明 Ark 请求 → 数据库存储 → 前端查看的链路。
+
+## 新增：认证、权限与对外 API
+
+### 10. 认证与权限（Basic）
+- [x] 后端引入基础认证：HTTP Basic（环境变量配置用户名/密码哈希），用于访问管理端点。
+- [x] 新增 `GET /api/auth/me`，校验 Basic 并返回当前用户信息。
+
+### 11. API Key 对外接口
+- [x] 管理端新增：
+  - `POST /api/admin/api-keys` 创建 API Key（返回一次性明文）。
+  - `GET /api/admin/api-keys` 列表 API Key（隐藏密钥，仅展示前缀与元数据）。
+- [x] 新增对外接口路由 `/api/external`，以 `X-API-Key` 鉴权：
+  - `POST /api/external/marketing/collage`：与内部一致的生成功能，scope `marketing:collage`。
+  - [x] 对外接口启用速率限制（全局 API Key 限流，超出 429）。
+- [x] 前端管理页：`/admin/api-keys`（Basic 认证）支持创建、列表、启/停。
+
+### 12. 审计与观测
+- [x] 中间件记录审计日志（actor、路径、方法、状态码、UA、IP），默认写入 JSONL（`AUDIT_LOG_STORE_PATH`）。
+- [x] 数据库落库 `audit_logs`（新增 Alembic 迁移 + 列表 API）。
+- [x] 前端审计查看页：`/admin/audit-logs`（Basic 认证）。
+
+### 13. 测试与文档
+- [x] 测试：
+  - API Key 创建与使用外部接口成功用例；
+  - 未提供/无效 Key 的拒绝用例。
+- [x] 文档：README 与 Agents 文档补充认证、API Key 与审计说明（后续补充页面示例）。

@@ -82,8 +82,30 @@ pre-commit install
   alembic upgrade head
   ```
 - CollageAgent 与 Orchestrator 会写入执行日志，可通过 `GET /api/agent-runs` 获取，支持 `agent_id`、`status`、`since` 等过滤。
+- 在启用数据库模式时，会额外持久化提示词与生成图片明细至 `agent_run_prompts`、`agent_run_images` 表；使用 `GET /api/agent-runs/{request_id}` 可获取某次执行的完整详情（Prompts + Images）。
 - 前端页面 `/agent-runs` 提供可视化仪表盘，支持在线筛选与分页浏览。
 - 响应包含 `runs`（按时间倒序）、分页参数以及结构化的 `metadata` 字段，便于诊断 Ark 调用耗时与失败。
+ - 在详情抽屉中支持「按关键词筛选 Prompt」与一键复制提示词/话题、下载图片。
+- 数据流示意图与详情 API 参考：`docs/agents/README.md`。
+
+## 认证与对外 API
+
+- 管理端基于 HTTP Basic（配置环境变量 `AUTH_BASIC_USERNAME` 与 `AUTH_BASIC_PASSWORD_HASH` 或 `AUTH_BASIC_PASSWORD_PLAIN`）。
+- API Key：
+  - 管理端创建：`POST /api/admin/api-keys`，返回一次性明文 Key（格式：`<prefix>.<secret>`）。
+  - 列表：`GET /api/admin/api-keys`。
+  - 对外调用：在请求头携带 `X-API-Key: <prefix>.<secret>`。
+  - 作用域（scope）：`marketing:collage` 用于营销组图接口。
+- 对外接口：
+  - `POST /api/external/marketing/collage`（与内部一致的参数/返回）。
+- 审计：所有请求都会写入审计日志（JSONL 默认，路径由 `AUDIT_LOG_STORE_PATH` 指定）。
+- 审计 SQL：配置 `DATABASE_URL` 后，审计日志将落库到 `audit_logs` 表；可通过 `GET /api/admin/audit-logs` 查看。
+- 速率限制：对外 API 基于 API Key 启用全局限流，配置 `API_KEY_RATE_WINDOW_SECONDS` 与 `API_KEY_RATE_MAX_REQUESTS`（默认 60 req/60s）。超出返回 429。
+
+### 前端管理页（开发用途）
+
+- `/admin/api-keys`：简单的 API Key 管理界面（创建、列表、启/停），需要输入 Basic 用户名密码后操作。仅用于本地/内网环境，不建议在生产环境暴露。
+- `/admin/audit-logs`：审计日志查看（可按 Actor 类型、时间、数量过滤）。
 
 ## Agents 文档
 
