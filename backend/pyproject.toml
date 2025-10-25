@@ -35,6 +35,10 @@ line-length = 100
 select = ["E", "F", "I", "B", "UP"]
 target-version = "py311"
 
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = ["tests*", "alembic*", "__pycache__"]
+
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
