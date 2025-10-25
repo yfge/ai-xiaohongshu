@@ -29,6 +29,26 @@ type AgentRunResponse = {
   offset: number;
 };
 
+type PromptVariant = {
+  title: string;
+  prompt: string;
+  description?: string | null;
+  hashtags: string[];
+};
+
+type GeneratedImage = {
+  prompt: PromptVariant;
+  image_url?: string | null;
+  image_base64?: string | null;
+  size?: string | null;
+};
+
+type AgentRunDetailResponse = {
+  run: AgentRun;
+  prompts: PromptVariant[];
+  images: GeneratedImage[];
+};
+
 export default function AgentRunDashboard(): JSX.Element {
   const [runs, setRuns] = useState<AgentRun[]>([]);
   const [total, setTotal] = useState(0);
@@ -38,6 +58,8 @@ export default function AgentRunDashboard(): JSX.Element {
   const [since, setSince] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [detail, setDetail] = useState<AgentRunDetailResponse | null>(null);
+  const [showDetail, setShowDetail] = useState(false);
 
   const totalPages = useMemo(() => Math.ceil(total / PAGE_SIZE) || 1, [total]);
   const currentPage = useMemo(() => Math.floor(offset / PAGE_SIZE) + 1, [offset]);
@@ -89,6 +111,22 @@ export default function AgentRunDashboard(): JSX.Element {
     setStatus("");
     setSince("");
     void fetchRuns(0);
+  };
+
+  const openDetails = async (requestId: string) => {
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/agent-runs/${requestId}`);
+      if (!response.ok) {
+        const detail = await safeParseError(response);
+        throw new Error(detail ?? "当前环境不支持查看详情或记录不存在");
+      }
+      const payload = (await response.json()) as AgentRunDetailResponse;
+      setDetail(payload);
+      setShowDetail(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "获取详情失败，请稍后再试");
+    }
   };
 
   const goToPage = (page: number) => {
@@ -201,6 +239,7 @@ export default function AgentRunDashboard(): JSX.Element {
                 <th className="px-4 py-3 text-left">时间</th>
                 <th className="px-4 py-3 text-left">异常</th>
                 <th className="px-4 py-3 text-left">Metadata</th>
+                <th className="px-4 py-3 text-left">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -230,6 +269,11 @@ export default function AgentRunDashboard(): JSX.Element {
                     <td className="px-4 py-3 text-xs text-muted-foreground">
                       {formatMetadata(run.metadata)}
                     </td>
+                    <td className="px-4 py-3">
+                      <Button type="button" size="sm" variant="outline" onClick={() => void openDetails(run.request_id)}>
+                        详情
+                      </Button>
+                    </td>
                   </tr>
                 ))
               )}
@@ -237,6 +281,10 @@ export default function AgentRunDashboard(): JSX.Element {
           </table>
         </div>
       </section>
+
+      {showDetail && detail && (
+        <DetailDrawer detail={detail} onClose={() => setShowDetail(false)} />
+      )}
     </div>
   );
 }
@@ -278,4 +326,134 @@ async function safeParseError(response: Response): Promise<string | null> {
     console.warn("Failed to parse agent run API error", error);
     return null;
   }
+}
+
+function DetailDrawer({ detail, onClose }: { detail: AgentRunDetailResponse; onClose: () => void }): JSX.Element {
+  const [q, setQ] = useState("");
+
+  const filteredPrompts = useMemo(() => {
+    const kw = q.trim().toLowerCase();
+    if (!kw) return detail.prompts;
+    return detail.prompts.filter((p) =>
+      [p.title, p.prompt, p.description ?? "", (p.hashtags ?? []).join(" ")]
+        .join("\n")
+        .toLowerCase()
+        .includes(kw)
+    );
+  }, [detail.prompts, q]);
+
+  const filteredImages = useMemo(() => {
+    if (!q.trim()) return detail.images;
+    const titles = new Set(filteredPrompts.map((p) => p.title + "\n" + p.prompt));
+    return detail.images.filter((img) => titles.has(img.prompt.title + "\n" + img.prompt.prompt));
+  }, [detail.images, filteredPrompts, q]);
+
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (e) {
+      console.warn("Clipboard copy failed", e);
+    }
+  };
+
+  const downloadImage = (img: GeneratedImage, index: number) => {
+    const filename = `${detail.run.request_id}-${index + 1}.png`;
+    let href: string | null = null;
+    if (img.image_url) href = img.image_url;
+    else if (img.image_base64) href = `data:image/png;base64,${img.image_base64}`;
+    if (!href) return;
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-stretch justify-end bg-black/20 backdrop-blur-sm">
+      <div className="h-full w-full max-w-2xl overflow-y-auto border-l border-border bg-card p-6 shadow-xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-xl font-semibold">执行详情 · {detail.run.request_id}</h3>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            关闭
+          </Button>
+        </div>
+
+        <div className="mb-6 grid gap-2 sm:grid-cols-[1fr,120px]">
+          <Input
+            placeholder="按关键词筛选 Prompt / Hashtag"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <div className="flex items-center text-sm text-muted-foreground">
+            共 {filteredPrompts.length} / {detail.prompts.length} Prompts
+          </div>
+        </div>
+
+        <section className="mb-6 space-y-2">
+          <h4 className="text-lg font-medium">Prompts（{filteredPrompts.length}）</h4>
+          <ul className="space-y-3">
+            {filteredPrompts.map((p, i) => (
+              <li key={i} className="rounded-lg border border-border p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold">{p.title}</div>
+                    <div className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{p.prompt}</div>
+                    {p.hashtags?.length ? (
+                      <div className="mt-1 text-xs text-muted-foreground">#{p.hashtags.join(" #")}</div>
+                    ) : null}
+                  </div>
+                  <div className="shrink-0 space-x-2">
+                    <Button type="button" size="sm" variant="outline" onClick={() => void copyText(p.prompt)}>
+                      复制提示词
+                    </Button>
+                    {p.hashtags?.length ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void copyText(p.hashtags.map((t) => `#${t}`).join(" "))}
+                      >
+                        复制话题
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section className="space-y-2">
+          <h4 className="text-lg font-medium">Images（{filteredImages.length}）</h4>
+          <div className="grid grid-cols-2 gap-3">
+            {filteredImages.map((img, i) => (
+              <figure key={i} className="rounded-lg border border-border p-2">
+                {img.image_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={img.image_url} alt={img.prompt.title} className="h-40 w-full rounded object-cover" />
+                ) : img.image_base64 ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={`data:image/png;base64,${img.image_base64}`}
+                    alt={img.prompt.title}
+                    className="h-40 w-full rounded object-cover"
+                  />
+                ) : (
+                  <div className="flex h-40 items-center justify-center text-xs text-muted-foreground">无图片数据</div>
+                )}
+                <figcaption className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <span className="truncate">{img.prompt.title}</span>
+                  <Button type="button" size="sm" variant="outline" onClick={() => downloadImage(img, i)}>
+                    下载
+                  </Button>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
 }
