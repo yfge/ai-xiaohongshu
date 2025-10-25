@@ -12,6 +12,7 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db import models
+from app.schemas.marketing import GeneratedImage, PromptVariant
 
 
 @dataclass(slots=True)
@@ -162,6 +163,71 @@ class AgentRunSQLRecorder:
             )
             await session.commit()
 
+    async def record_details(
+        self,
+        record: AgentRunRecord,
+        *,
+        prompts: list[PromptVariant],
+        images: list[GeneratedImage],
+    ) -> None:
+        """Persist a run and its prompt/image details in a single transaction."""
+
+        created_at = _parse_created_at(record.created_at)
+        async with self._session_maker() as session:
+            run = models.AgentRun(
+                agent_id=record.agent_id,
+                request_id=record.request_id,
+                status=record.status,
+                duration_ms=record.duration_ms,
+                input_hash=record.input_hash,
+                prompt_count=record.prompt_count,
+                image_count=record.image_count,
+                error=record.error,
+                metadata_json=record.metadata or None,
+                created_at=created_at,
+            )
+            session.add(run)
+            await session.flush()
+
+            # Map prompts
+            prompt_rows: list[models.AgentRunPrompt] = []
+            prompt_index_lookup: dict[tuple[str, str, str | None], int] = {}
+            for idx, pv in enumerate(prompts):
+                row = models.AgentRunPrompt(
+                    agent_run_id=run.id,
+                    idx=idx,
+                    title=pv.title,
+                    prompt=pv.prompt,
+                    description=pv.description,
+                    hashtags={"hashtags": pv.hashtags} if pv.hashtags else None,
+                )
+                session.add(row)
+                prompt_rows.append(row)
+                prompt_index_lookup[(pv.title, pv.prompt, pv.description)] = idx
+
+            await session.flush()
+
+            # Map images to prompt IDs when possible
+            for idx, gi in enumerate(images):
+                prompt_key = (gi.prompt.title, gi.prompt.prompt, gi.prompt.description)
+                prompt_idx = prompt_index_lookup.get(prompt_key)
+                prompt_id = None
+                if prompt_idx is not None and 0 <= prompt_idx < len(prompt_rows):
+                    prompt_id = prompt_rows[prompt_idx].id
+
+                session.add(
+                    models.AgentRunImage(
+                        agent_run_id=run.id,
+                        prompt_id=prompt_id,
+                        idx=idx,
+                        image_url=gi.image_url,
+                        image_base64=gi.image_base64,
+                        size=gi.size,
+                    )
+                )
+
+            await session.commit()
+
 
 class AgentRunSQLRepository:
     """Query agent run history from SQL storage."""
@@ -204,6 +270,77 @@ class AgentRunSQLRepository:
 
         records = [_from_model(row) for row in rows]
         return records, int(total)
+
+    async def get_run_details(
+        self, request_id: str
+    ) -> tuple[AgentRunRecord, list[PromptVariant], list[GeneratedImage]]:
+        """Return a run and its associated prompts/images by request id."""
+
+        async with self._session_maker() as session:
+            run_row = (
+                await session.execute(
+                    select(models.AgentRun).where(models.AgentRun.request_id == request_id)
+                )
+            ).scalar_one_or_none()
+            if not run_row:
+                raise KeyError("run not found")
+
+            # Load prompts ordered by idx
+            prompt_rows = (
+                await session.execute(
+                    select(models.AgentRunPrompt)
+                    .where(models.AgentRunPrompt.agent_run_id == run_row.id)
+                    .order_by(models.AgentRunPrompt.idx.asc())
+                )
+            ).scalars().all()
+
+            # Build lookup for prompt id -> PromptVariant
+            prompts: list[PromptVariant] = []
+            id_to_prompt: dict[int, PromptVariant] = {}
+            for row in prompt_rows:
+                hashtags = []
+                if row.hashtags and isinstance(row.hashtags, dict):
+                    tags = row.hashtags.get("hashtags")
+                    if isinstance(tags, list):
+                        hashtags = [str(t) for t in tags]
+                pv = PromptVariant(
+                    title=row.title,
+                    prompt=row.prompt,
+                    description=row.description,
+                    hashtags=hashtags,
+                )
+                prompts.append(pv)
+                id_to_prompt[row.id] = pv
+
+            # Load images ordered by idx
+            image_rows = (
+                await session.execute(
+                    select(models.AgentRunImage)
+                    .where(models.AgentRunImage.agent_run_id == run_row.id)
+                    .order_by(models.AgentRunImage.idx.asc())
+                )
+            ).scalars().all()
+
+            images: list[GeneratedImage] = []
+            for row in image_rows:
+                pv = id_to_prompt.get(row.prompt_id) if row.prompt_id else None
+                # Fallback to first prompt if mapping missing but prompts exist
+                if pv is None and prompts:
+                    pv = prompts[0]
+                if pv is None:
+                    # Construct a placeholder
+                    pv = PromptVariant(title="", prompt="", description=None, hashtags=[])
+                images.append(
+                    GeneratedImage(
+                        prompt=pv,
+                        image_url=row.image_url,
+                        image_base64=row.image_base64,
+                        size=row.size,
+                    )
+                )
+
+            record = _from_model(run_row)
+            return record, prompts, images
 
 
 def _parse_created_at(value: str) -> datetime:

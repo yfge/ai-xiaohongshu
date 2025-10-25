@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from pydantic import BaseModel, Field
+from app.schemas.marketing import GeneratedImage, PromptVariant
 
 
 class AgentRun(BaseModel):
@@ -26,3 +27,9 @@ class AgentRunListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class AgentRunDetailResponse(BaseModel):
+    run: AgentRun
+    prompts: List[PromptVariant]
+    images: List[GeneratedImage]

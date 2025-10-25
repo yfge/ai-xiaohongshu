@@ -4,11 +4,12 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.deps import get_agent_run_repository
-from app.schemas.agent_runs import AgentRun, AgentRunListResponse
-from app.services.agent_runs import AgentRunRepository
+from app.schemas.agent_runs import AgentRun, AgentRunDetailResponse, AgentRunListResponse
+from app.schemas.marketing import GeneratedImage, PromptVariant
+from app.services.agent_runs import AgentRunRepository, AgentRunSQLRepository
 
 
 router = APIRouter(prefix="/agent-runs", tags=["agent-runs"])
@@ -41,4 +42,33 @@ async def list_agent_runs(
         total=total,
         limit=limit,
         offset=offset,
+    )
+
+
+@router.get(
+    "/{request_id}",
+    response_model=AgentRunDetailResponse,
+    summary="获取指定 Agent Run 的执行详情",
+)
+async def get_agent_run_details(
+    request_id: str,
+    repository: AgentRunRepository = Depends(get_agent_run_repository),
+) -> AgentRunDetailResponse:
+    """Return full details of a specific agent run.
+
+    Note: Details are only available when a SQL database is configured.
+    """
+
+    if not isinstance(repository, AgentRunSQLRepository):
+        raise HTTPException(status_code=404, detail="执行详情仅在数据库模式下可用")
+
+    try:
+        record, prompts, images = await repository.get_run_details(request_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="未找到对应的执行记录")
+
+    return AgentRunDetailResponse(
+        run=AgentRun.model_validate(asdict(record)),
+        prompts=[PromptVariant.model_validate(p.model_dump()) for p in prompts],
+        images=[GeneratedImage.model_validate(i.model_dump()) for i in images],
     )

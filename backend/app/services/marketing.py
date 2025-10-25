@@ -379,6 +379,18 @@ class MarketingCollageService:
             },
         )
 
+        # If the recorder supports details, persist prompts/images atomically
+        if hasattr(self._recorder, "record_details"):
+            try:
+                await getattr(self._recorder, "record_details")(  # type: ignore[misc]
+                    record,
+                    prompts=list(prompt_variants),
+                    images=list(image_results),
+                )
+                return
+            except Exception:  # pragma: no cover - defensive, fallback to summary
+                logger.exception("Recording details failed; falling back to summary record")
+
         await self._recorder.record(record)
 
     def _compute_input_hash(
