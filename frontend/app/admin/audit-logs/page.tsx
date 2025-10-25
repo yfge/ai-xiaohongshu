@@ -24,6 +24,9 @@ export default function AuditLogsAdmin(): JSX.Element {
   const [password, setPassword] = useState("");
   const [actorType, setActorType] = useState("");
   const [since, setSince] = useState("");
+  const [method, setMethod] = useState("");
+  const [status, setStatus] = useState("");
+  const [pathPrefix, setPathPrefix] = useState("");
   const [limit, setLimit] = useState(50);
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +47,9 @@ export default function AuditLogsAdmin(): JSX.Element {
       }
       const params = new URLSearchParams({ limit: String(limit) });
       if (actorType.trim()) params.set("actor_type", actorType.trim());
+      if (method.trim()) params.set("method", method.trim().toUpperCase());
+      if (status.trim()) params.set("status_code", status.trim());
+      if (pathPrefix.trim()) params.set("path_prefix", pathPrefix.trim());
       if (since) {
         const date = new Date(since);
         if (!Number.isNaN(date.getTime())) params.set("since", date.toISOString());
@@ -83,7 +89,7 @@ export default function AuditLogsAdmin(): JSX.Element {
             <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••" />
           </div>
         </div>
-        <div className="mt-4 grid gap-4 sm:grid-cols-3">
+        <div className="mt-4 grid gap-4 sm:grid-cols-5">
           <div className="grid gap-2">
             <Label htmlFor="actor">Actor 类型</Label>
             <Input id="actor" value={actorType} onChange={(e) => setActorType(e.target.value)} placeholder="api_key / user / anonymous" />
@@ -96,9 +102,26 @@ export default function AuditLogsAdmin(): JSX.Element {
             <Label htmlFor="limit">数量</Label>
             <Input id="limit" type="number" min={1} max={200} value={limit} onChange={(e) => setLimit(Number(e.target.value))} />
           </div>
+          <div className="grid gap-2">
+            <Label htmlFor="method">Method</Label>
+            <Input id="method" value={method} onChange={(e) => setMethod(e.target.value)} placeholder="GET/POST..." />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="status">状态码</Label>
+            <Input id="status" value={status} onChange={(e) => setStatus(e.target.value)} placeholder="200" />
+          </div>
         </div>
-        <div className="mt-4 flex items-center gap-3">
-          <Button type="button" onClick={() => void fetchLogs()} disabled={isPending}>{isPending ? "查询中…" : "查询"}</Button>
+        <div className="mt-4 grid gap-4 sm:grid-cols-5">
+          <div className="grid gap-2 sm:col-span-3">
+            <Label htmlFor="path">Path 前缀</Label>
+            <Input id="path" value={pathPrefix} onChange={(e) => setPathPrefix(e.target.value)} placeholder="/api" />
+          </div>
+          <div className="grid gap-2 sm:col-span-2">
+            <Label>&nbsp;</Label>
+            <Button type="button" onClick={() => void fetchLogs()} disabled={isPending}>
+              {isPending ? "查询中…" : "查询"}
+            </Button>
+          </div>
         </div>
       </section>
 
@@ -117,6 +140,8 @@ export default function AuditLogsAdmin(): JSX.Element {
                 <th className="px-4 py-3 text-left">Method</th>
                 <th className="px-4 py-3 text-left">Path</th>
                 <th className="px-4 py-3 text-left">Status</th>
+                <th className="px-4 py-3 text-left">耗时(ms)</th>
+                <th className="px-4 py-3 text-left">Req/Res(Bytes)</th>
                 <th className="px-4 py-3 text-left">IP</th>
                 <th className="px-4 py-3 text-left">UA</th>
               </tr>
@@ -134,6 +159,8 @@ export default function AuditLogsAdmin(): JSX.Element {
                     <td className="px-4 py-3">{l.method}</td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">{l.path}</td>
                     <td className="px-4 py-3">{l.status_code}</td>
+                    <td className="px-4 py-3">{typeof l.duration_ms === "number" ? l.duration_ms.toFixed(1) : "-"}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">{`${l.req_bytes ?? "-"} / ${l.res_bytes ?? "-"}`}</td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">{l.ip ?? "-"}</td>
                     <td className="px-4 py-3 text-xs text-muted-foreground truncate max-w-[240px]">{l.user_agent ?? "-"}</td>
                   </tr>
@@ -156,4 +183,3 @@ function formatDate(value: string): string {
     return value;
   }
 }
-
