@@ -118,6 +118,7 @@ Frontend
   - 创建：`POST /api/admin/api-keys`（仅创建时返回明文 Key）。
   - 列表：`GET /api/admin/api-keys`。
   - 客户端调用：请求头 `X-API-Key: <prefix>.<secret>`。
+  - 存储：若配置 `DATABASE_URL` 且已迁移，默认使用 SQL（表 `api_keys`）；否则回退 JSONL 存储（`API_KEY_STORE_PATH`）。
   - Scope 校验：例如 `marketing:collage` 控制营销组图接口访问。
 - 对外接口：`POST /api/external/marketing/collage`，参数与内部一致。
 - 审计：全局中间件落 JSONL（actor、路径、方法、状态），`AUDIT_LOG_STORE_PATH` 指定路径。
@@ -125,3 +126,16 @@ Frontend
 - 限流：对外 API 按 API Key 执行限流（`API_KEY_RATE_WINDOW_SECONDS`/`API_KEY_RATE_MAX_REQUESTS`）。超限返回 429。
 - 审计增强：记录 `duration_ms`、`req_bytes`、`res_bytes`；列表支持 `method`、`status_code`、`path_prefix`、`request_id` 等过滤。
  - 前端管理：`/admin/audit-logs` 支持分页（limit/offset）、按 `request_id` 链路查看，以及导出 JSON/CSV。
+
+## Creative（RED 自动封面，CPU）
+
+- API：`POST /api/creative/covers`，上传视频（`video`）与标题/副标题/样式（glass|gradient|sticker），或通过 `preset_id/preset_key` 使用数据库样式预设；返回两张 Base64 预览图（1080×1920 与 1080×1440）。
+- 依赖：`Pillow`、`opencv-python` 可选安装（后端 `media` extra）。未安装时接口返回 503。
+- 管理：
+  - `GET/POST/PATCH /api/admin/cover-presets`（需 Basic 认证）：样式预设 CRUD（保存在 SQL）。
+  - `GET /api/admin/cover-jobs`：封面任务列表，分页与状态筛选。
+- 前端管理页：
+  - `/admin/cover-presets`：创建/列表/编辑预设。
+  - `/admin/cover-jobs`：任务列表视图。
+ - 前端创作页：
+   - `/creative/covers`：上传视频、选择样式或预设，生成两份封面预览并下载。
