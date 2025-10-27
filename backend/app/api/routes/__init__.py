@@ -1,7 +1,7 @@
 """API route registrations."""
 from fastapi import APIRouter
 
-from app.api.routes import agent_runs, marketing, auth, admin, external
+from app.api.routes import agent_runs, marketing, auth, admin, external, creative
 
 
 api_router = APIRouter()
@@ -10,5 +10,6 @@ api_router.include_router(agent_runs.router)
 api_router.include_router(auth.router)
 api_router.include_router(admin.router)
 api_router.include_router(external.router)
+api_router.include_router(creative.router)
 
 __all__ = ["api_router"]
