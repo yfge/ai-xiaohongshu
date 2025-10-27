@@ -104,6 +104,8 @@ class Settings(BaseSettings):
     )
     # Optional Redis URL for Celery broker/backend
     redis_url: Optional[str] = Field(default=None, env="REDIS_URL")
+    # Cover jobs retry attempts
+    covers_max_attempts: int = Field(default=1, env="COVERS_MAX_ATTEMPTS")
 
 
 @lru_cache

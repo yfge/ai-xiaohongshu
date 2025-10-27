@@ -52,6 +52,11 @@ def test_enqueue_and_status(tmp_path: Path, monkeypatch) -> None:
         r = client.post("/api/creative/cover-jobs", data=data, files=files)
         assert r.status_code == 200, r.text
         job_id = r.json()["id"]
+        # Deduplicate: enqueue same payload should return existing job id
+        r2 = client.post("/api/creative/cover-jobs", data=data, files=files)
+        assert r2.status_code == 200
+        assert r2.json()["existing"] is True
+        assert r2.json()["id"] == job_id
 
     # Manually process (simulate worker)
     async def _process():
@@ -67,6 +72,39 @@ def test_enqueue_and_status(tmp_path: Path, monkeypatch) -> None:
         assert payload["status"] == "succeeded"
         assert Path(payload["result_9x16_url"]).exists()
         assert Path(payload["result_3x4_url"]).exists()
+
+    app.dependency_overrides.pop(get_settings, None)
+
+
+def test_enqueue_prefers_celery_when_available(tmp_path: Path, monkeypatch) -> None:
+    db_url = "sqlite+aiosqlite:///" + str(tmp_path / "jobs2.db")
+    _prepare_db(db_url)
+
+    # Override settings
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        database_url=db_url,
+        covers_store_path=str(tmp_path / "covers2"),
+        redis_url="redis://fake",  # trigger celery path
+    )
+
+    # Stub celery enqueue helper to simulate success
+    from app.worker import celery_app as celery_mod  # type: ignore
+    celery_mod.enqueue_cover_job_celery = lambda job_id: True  # type: ignore
+
+    from app.api.routes import creative as creative_mod  # type: ignore
+    creative_mod._ensure_deps = lambda: None  # type: ignore
+    import types, sys
+    fake_mod = types.SimpleNamespace(make_red_covers=lambda *a, **k: None)
+    sys.modules["app.services.covers"] = fake_mod  # type: ignore
+
+    with TestClient(app) as client:
+        files = {"video": ("v.mp4", b"00", "video/mp4")}
+        data = {"title": "C", "style": "gradient"}
+        r = client.post("/api/creative/cover-jobs", data=data, files=files)
+        assert r.status_code == 200
+        payload = r.json()
+        assert payload["status"] == "queued"
+        assert isinstance(payload["id"], int)
 
     app.dependency_overrides.pop(get_settings, None)
 
@@ -92,4 +130,3 @@ def test_seed_cover_preset(tmp_path: Path, monkeypatch) -> None:
         await engine.dispose()
         return len(rows)
     assert asyncio.run(_count()) >= 1
-

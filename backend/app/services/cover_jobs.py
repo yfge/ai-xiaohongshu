@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from sqlalchemy import select
+import sqlalchemy as sa
 from app.core.config import Settings
 from app.db.session import get_session_maker
 from app.db import models
@@ -41,6 +42,10 @@ async def process_cover_job(job_id: int, *, settings: Settings) -> None:
         ).scalar_one_or_none()
         if not row or not row.video_ref:
             return
+        row.status = "running"
+        row.started_at = sa.func.now()  # type: ignore[attr-defined]
+        row.progress_pct = 5.0
+        await session.commit()
         started = _t.perf_counter()
         try:
             out_dir = os.path.dirname(row.video_ref)
@@ -58,11 +63,22 @@ async def process_cover_job(job_id: int, *, settings: Settings) -> None:
             row.duration_ms = (_t.perf_counter() - started) * 1000.0
             row.result_9x16_url = out_916
             row.result_3x4_url = out_34
+            row.progress_pct = 100.0
         except Exception as exc:  # pragma: no cover - defensive
-            row.status = "failed"
-            row.error = str(exc)
+            row.attempts = int((row.attempts or 0) + 1)
+            if row.attempts < int(row.max_attempts or 1):
+                # Re-queue immediately for a simple retry strategy
+                row.status = "queued"
+                row.error = None
+                await session.commit()
+                # Schedule immediate retry by calling recursively
+                await process_cover_job(job_id, settings=settings)
+                return
+            else:
+                row.status = "failed"
+                row.error = str(exc)
+                row.progress_pct = None
         await session.commit()
 
 
 __all__ = ["process_cover_job"]
-

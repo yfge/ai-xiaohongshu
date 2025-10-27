@@ -41,6 +41,7 @@ class CoverJobEnqueueResult(BaseModel):
     id: int
     request_id: str
     status: str
+    existing: bool = False
 
 
 class CoverJobStatus(BaseModel):
@@ -274,6 +275,28 @@ async def enqueue_cover_job(
     import uuid
     request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
     session_maker: async_sessionmaker = get_session_maker(settings)
+    # Read upload early to compute dedupe key
+    raw = await video.read()
+    import hashlib as _hashlib
+    dedupe_key = _hashlib.sha256(b"|".join([
+        title.encode("utf-8"),
+        (subtitle or "").encode("utf-8"),
+        style.encode("utf-8"),
+        raw,
+    ])).hexdigest()
+    # Dedupe: return existing job if queued/running/succeeded
+    async with session_maker() as session:
+        existing = (
+            await session.execute(
+                select(models.CoverJob)
+                .where(models.CoverJob.dedupe_key == dedupe_key)
+                .order_by(models.CoverJob.created_at.desc())
+            )
+        ).scalar_one_or_none()
+        if existing and existing.status in {"queued", "running", "succeeded"}:
+            return CoverJobEnqueueResult(
+                id=existing.id, request_id=existing.request_id, status=existing.status, existing=True
+            )
     async with session_maker() as session:
         job = models.CoverJob(
             request_id=request_id,
@@ -283,6 +306,10 @@ async def enqueue_cover_job(
             subtitle=subtitle,
             style_key=style,
             status="queued",
+            progress_pct=0.0,
+            attempts=0,
+            max_attempts=int(getattr(settings, "covers_max_attempts", 1) or 1),
+            dedupe_key=dedupe_key,
         )
         session.add(job)
         await session.commit()
@@ -293,7 +320,6 @@ async def enqueue_cover_job(
         job_dir = os.path.join(base, str(job.id))
         os.makedirs(job_dir, exist_ok=True)
         video_path = os.path.join(job_dir, "input.mp4")
-        raw = await video.read()
         with open(video_path, "wb") as f:
             f.write(raw)
         job.video_ref = video_path
@@ -311,7 +337,7 @@ async def enqueue_cover_job(
             pass
     _schedule_background_cover_job(background, job.id, settings=settings)
 
-    return CoverJobEnqueueResult(id=job.id, request_id=request_id, status="queued")
+    return CoverJobEnqueueResult(id=job.id, request_id=request_id, status="queued", existing=False)
 
 
 @router.get("/cover-jobs/{job_id}", response_model=CoverJobStatus, summary="查询封面任务状态")
