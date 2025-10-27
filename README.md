@@ -40,7 +40,8 @@ pnpm dev
 前端内置：
 - `/marketing/bundle` 工具页：上传参考图与创意提示词，让系统调用 Ark 生成组图。
 - `/creative/covers` 工具页：上传视频并选择样式或预设，生成 9:16 与 3:4 封面预览。
-  - 支持异步任务：`POST /api/creative/cover-jobs` 入队后台处理，`GET /api/creative/cover-jobs/{id}` 查询状态。
+- 支持异步任务：`POST /api/creative/cover-jobs` 入队后台处理，`GET /api/creative/cover-jobs/{id}` 查询状态。
+  - 可选 Celery：配置 `REDIS_URL` 并安装后端 `worker` extra（`pip install .[worker]`），服务端将优先使用 Celery 调度；未配置时回退 FastAPI BackgroundTasks。
 
 ## 环境变量
 
