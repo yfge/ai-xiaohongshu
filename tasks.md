@@ -159,6 +159,7 @@
   - [x] 对外走 API Key 与速率限制（沿用现有中间件与审计日志）。
   - 统一 `X-Request-Id` 贯穿并落库 `cover_jobs.request_id`。
 - [ ] CLI：`backend/bin/make_red_cover.py` 一键批量生成与本地预览；打印评分与输出路径。
+ - [x] CLI：`backend/bin/make_red_cover.py` 一键生成与本地预览；打印输出路径。
 
 ### 18. 前端实现
  - [x] 新增页面 `/creative/covers`：视频上传、样式选择（glass/gradient/sticker 或 preset）、实时预览与导出。
