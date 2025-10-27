@@ -19,3 +19,7 @@ frontend/out/
 
 # Env
 .env
+
+# Local builds and storage
+backend/build/
+backend/storage/*.jsonl
