@@ -98,6 +98,10 @@ class Settings(BaseSettings):
     api_key_rate_max_requests: int = Field(
         default=60, env="API_KEY_RATE_MAX_REQUESTS"
     )
+    # Covers storage (for async jobs)
+    covers_store_path: str = Field(
+        default="storage/covers", env="COVERS_STORE_PATH"
+    )
 
 
 @lru_cache
