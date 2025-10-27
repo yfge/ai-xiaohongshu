@@ -168,8 +168,8 @@
 
 ### 19. 同步 / 异步执行策略
 - [ ] 同步：小视频（<= 60s 或帧数阈值）直接生成，接口超时保护。
-- [ ] 异步：超过阈值转后台作业（FastAPI BackgroundTasks 起步；存在 `REDIS_URL` 时可切 Celery）。
-- [ ] 进度与重试：任务状态轮询接口；失败可重试，支持去重（相同 `video_ref+title+style`）。
+- [x] 异步：后台作业（FastAPI BackgroundTasks 骨架）：`POST /api/creative/cover-jobs` 入队并返回 `job_id`。
+- [x] 进度与重试：新增 `GET /api/creative/cover-jobs/{id}` 查询任务状态（succeeded/failed/queued）。后续补充重试/去重策略。
 
 ### 20. 测试计划
 - [ ] 单元测试：

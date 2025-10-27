@@ -40,6 +40,7 @@ pnpm dev
 前端内置：
 - `/marketing/bundle` 工具页：上传参考图与创意提示词，让系统调用 Ark 生成组图。
 - `/creative/covers` 工具页：上传视频并选择样式或预设，生成 9:16 与 3:4 封面预览。
+  - 支持异步任务：`POST /api/creative/cover-jobs` 入队后台处理，`GET /api/creative/cover-jobs/{id}` 查询状态。
 
 ## 环境变量
 
@@ -103,6 +104,7 @@ pre-commit install
   - `POST /api/external/marketing/collage`（与内部一致的参数/返回）。
   - `POST /api/external/creative/covers`（与内部一致，需 scope `creative:covers`）。
   - 内部：`POST /api/creative/covers`（CPU 自动封面生成：上传视频 + 标题/副标题；支持 `style` 或 `preset_id/preset_key`；返回 9:16 与 3:4 Base64 预览）。
+  - 内部异步：`POST /api/creative/cover-jobs` 入队，`GET /api/creative/cover-jobs/{id}` 查询。
 - 审计：所有请求都会写入审计日志（JSONL 默认，路径由 `AUDIT_LOG_STORE_PATH` 指定）。
 - 审计 SQL：配置 `DATABASE_URL` 后，审计日志将落库到 `audit_logs` 表；可通过 `GET /api/admin/audit-logs` 查看。
 - 速率限制：对外 API 基于 API Key 启用全局限流，配置 `API_KEY_RATE_WINDOW_SECONDS` 与 `API_KEY_RATE_MAX_REQUESTS`（默认 60 req/60s）。超出返回 429。
