@@ -129,26 +129,26 @@
 - [ ] 开源商用字体可配置（Source Han Sans SC、Noto Sans SC、LXGW WenKai）。
 
 ### 15. 依赖与资源
-- [ ] 引入纯 CPU 依赖：`pillow`、`opencv-python`（后端 `pyproject.toml` 记录）。
+- [x] 引入纯 CPU 依赖：`pillow`、`opencv-python`（后端 `pyproject.toml` 记录）。
 - [ ] 字体文件落地与加载策略：`/assets/fonts` 目录 + 可配置路径；无字体时回落系统字体并告警。
 - [ ] 示例视频/图片测试资源（小样本，CI 友好）。
 
 ### 16. 表结构与迁移（SQL）
-- [ ] `fonts`：`id`、`family`、`path`、`license`、`enabled`、`created_at`。
-- [ ] `cover_style_presets`：
+- [x] `fonts`：`id`、`family`、`path`、`license`、`enabled`、`created_at`。
+- [x] `cover_style_presets`：
   - 字段：`id`、`key`、`name`、`style_type`(`glass|gradient|sticker`)、
     `title_font_id`、`subtitle_font_id`、`safe_margin_pct`、`padding_pct`、
     `palette_start`、`palette_end`、`shadow`、`sticker_default_text`、`params`(JSON)、时间戳。
-- [ ] `cover_jobs`：
+- [x] `cover_jobs`：
   - `id`、`request_id`、`actor_type`（admin/api_key）与标识、`title`、`subtitle`、
     `style_key/preset_id`、`sticker_text`、`video_ref`（本地/对象存储）、
     `status`（queued/running/succeeded/failed）、`duration_ms`、
     `result_9x16_url`、`result_3x4_url`、`error`、`score_meta`(JSON)。
-- [ ] `cover_job_scores`：`id`、`job_id`、`frame_index`、`brightness`、`laplacian_var`、`entropy`、`subtitle_penalty`、`face_area`、`score`。
-- [ ] Alembic 迁移脚本与索引（按 `request_id/status/created_at` 查询优化）。
+- [x] `cover_job_scores`：`id`、`job_id`、`frame_index`、`brightness`、`laplacian_var`、`entropy`、`subtitle_penalty`、`face_area`、`score`。
+- [x] Alembic 迁移脚本与索引（按 `request_id/status/created_at` 查询优化）。
 
 ### 17. 后端实现
-- [ ] 新建服务模块 `backend/app/services/covers.py`：
+- [x] 新建服务模块 `backend/app/services/covers.py`：
   - `pick_cover_frame`、`score_frame_for_red`、`render_cover_styles`、`make_red_covers`。
   - 支持按 `cover_style_presets` 覆盖默认参数；参数校验与回落策略。
 - [ ] API：
