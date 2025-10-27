@@ -120,7 +120,9 @@ Frontend
   - 客户端调用：请求头 `X-API-Key: <prefix>.<secret>`。
   - 存储：若配置 `DATABASE_URL` 且已迁移，默认使用 SQL（表 `api_keys`）；否则回退 JSONL 存储（`API_KEY_STORE_PATH`）。
   - Scope 校验：例如 `marketing:collage` 控制营销组图接口访问。
-- 对外接口：`POST /api/external/marketing/collage`，参数与内部一致。
+- 对外接口：
+  - `POST /api/external/marketing/collage`，参数与内部一致。
+  - `POST /api/external/creative/covers`（与内部一致，需 scope `creative:covers`）。
 - 审计：全局中间件落 JSONL（actor、路径、方法、状态），`AUDIT_LOG_STORE_PATH` 指定路径。
 - 审计 SQL：启用 `DATABASE_URL` 可将审计写入 `audit_logs` 表，通过 `GET /api/admin/audit-logs` 列表查看。
 - 限流：对外 API 按 API Key 执行限流（`API_KEY_RATE_WINDOW_SECONDS`/`API_KEY_RATE_MAX_REQUESTS`）。超限返回 429。

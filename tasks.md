@@ -156,7 +156,7 @@
   - [x] 管理端 `GET/POST/PATCH /api/admin/cover-presets`（Basic 认证）进行样式预设 CRUD。
   - [x] 管理端 `GET /api/admin/cover-jobs` 分页查询任务与结果。
 - [ ] 鉴权与审计：
-  - 对外走 API Key 与速率限制（沿用现有中间件与审计日志）。
+  - [x] 对外走 API Key 与速率限制（沿用现有中间件与审计日志）。
   - 统一 `X-Request-Id` 贯穿并落库 `cover_jobs.request_id`。
 - [ ] CLI：`backend/bin/make_red_cover.py` 一键批量生成与本地预览；打印评分与输出路径。
 
