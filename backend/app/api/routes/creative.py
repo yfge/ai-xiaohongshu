@@ -45,26 +45,21 @@ def _ensure_deps():
         raise HTTPException(status_code=503, detail="Cover generation dependencies not available")
 
 
-@router.post("/covers", response_model=CoverResult)
-async def generate_covers(
+async def _generate_covers_impl(
     request: Request,
-    title: str = Form(...),
-    subtitle: str | None = Form(default=None),
-    style: str = Form(default="gradient"),
-    sticker: str | None = Form(default=None),
-    preset_id: int | None = Form(default=None),
-    preset_key: str | None = Form(default=None),
-    video: UploadFile = File(...),
-    settings: Settings = Depends(get_settings),
-):
-    """Generate RED-style covers (9:16 and 3:4) from a video file.
-
-    Returns base64-encoded JPEGs for easy preview. For production export to storage,
-    prefer server-side persistence via a future job endpoint.
-    """
+    *,
+    title: str,
+    subtitle: str | None,
+    style: str,
+    sticker: str | None,
+    preset_id: int | None,
+    preset_key: str | None,
+    video: UploadFile,
+    settings: Settings,
+) -> CoverResult:
+    """Shared implementation for generating covers, used by internal and external endpoints."""
     _ensure_deps()
 
-    # Materialize upload into a temporary file
     import time as _t
     started = _t.perf_counter()
     actor = getattr(request.state, "actor", None) or {"type": "anonymous", "id": "-"}
@@ -115,7 +110,6 @@ async def generate_covers(
             with open(video_path, "wb") as f:
                 f.write(raw)
 
-            # Lazy import to avoid hard dependency at app import time
             from app.services.covers import make_red_covers
 
             out_916 = os.path.join(td, "cover_1080x1920.jpg")
@@ -159,7 +153,6 @@ async def generate_covers(
                         )
                         await session.commit()
                 except Exception:
-                    # ignore persistence failures
                     pass
 
             return CoverResult(
@@ -175,7 +168,6 @@ async def generate_covers(
     except HTTPException:
         raise
     except Exception as exc:  # pragma: no cover - defensive
-        # On failure, attempt to record failed job
         if settings.database_url:
             try:
                 session_maker = get_session_maker(settings)
@@ -200,3 +192,29 @@ async def generate_covers(
             except Exception:
                 pass
         raise HTTPException(status_code=500, detail=f"Cover generation failed: {exc}")
+
+
+@router.post("/covers", response_model=CoverResult)
+async def generate_covers(
+    request: Request,
+    title: str = Form(...),
+    subtitle: str | None = Form(default=None),
+    style: str = Form(default="gradient"),
+    sticker: str | None = Form(default=None),
+    preset_id: int | None = Form(default=None),
+    preset_key: str | None = Form(default=None),
+    video: UploadFile = File(...),
+    settings: Settings = Depends(get_settings),
+):
+    """Generate RED-style covers (9:16 and 3:4) from a video file."""
+    return await _generate_covers_impl(
+        request,
+        title=title,
+        subtitle=subtitle,
+        style=style,
+        sticker=sticker,
+        preset_id=preset_id,
+        preset_key=preset_key,
+        video=video,
+        settings=settings,
+    )
