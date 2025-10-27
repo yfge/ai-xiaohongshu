@@ -29,6 +29,10 @@ dev = [
   "respx>=0.21.1",
   "aiosqlite>=0.20.0",
 ]
+media = [
+  "Pillow>=10.0.0",
+  "opencv-python>=4.8.0.74",
+]
 
 [tool.ruff]
 line-length = 100
