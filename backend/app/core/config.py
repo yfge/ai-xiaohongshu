@@ -102,6 +102,8 @@ class Settings(BaseSettings):
     covers_store_path: str = Field(
         default="storage/covers", env="COVERS_STORE_PATH"
     )
+    # Optional Redis URL for Celery broker/backend
+    redis_url: Optional[str] = Field(default=None, env="REDIS_URL")
 
 
 @lru_cache

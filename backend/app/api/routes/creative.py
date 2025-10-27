@@ -17,6 +17,7 @@ from app.core.config import Settings
 from app.db.session import get_session_maker
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy import select
+from app.services.cover_jobs import process_cover_job
 from app.db import models
 
 
@@ -239,61 +240,20 @@ async def generate_covers(
     )
 
 
-async def _process_cover_job(
-    job_id: int,
-    *,
-    settings: Settings,
-) -> None:
-    """Background task to process a cover job and update DB status.
+def _schedule_background_cover_job(background: BackgroundTasks, job_id: int, *, settings: Settings) -> None:
+    """Schedule the async processor safely from BackgroundTasks.
 
-    This skeleton uses local filesystem storage under covers_store_path.
+    Ensures the coroutine is executed by wrapping into a sync callable.
     """
-    # Ensure deps
-    try:
-        _ensure_deps()
-    except HTTPException as exc:
-        session_maker = get_session_maker(settings)
-        async with session_maker() as session:
-            row = (
-                await session.execute(select(models.CoverJob).where(models.CoverJob.id == job_id))
-            ).scalar_one_or_none()
-            if row:
-                row.status = "failed"
-                row.error = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
-                await session.commit()
-        return
-
-    # Load job row and process
-    session_maker = get_session_maker(settings)
-    async with session_maker() as session:
-        row = (
-            await session.execute(select(models.CoverJob).where(models.CoverJob.id == job_id))
-        ).scalar_one_or_none()
-        if not row or not row.video_ref:
-            return
-        import time as _t
-        started = _t.perf_counter()
+    def _runner():
+        import asyncio as _asyncio
         try:
-            from app.services.covers import make_red_covers
-            out_dir = os.path.dirname(row.video_ref)
-            out_916 = os.path.join(out_dir, "cover_1080x1920.jpg")
-            out_34 = os.path.join(out_dir, "cover_1080x1440.jpg")
-            _ = make_red_covers(
-                row.video_ref,
-                title=row.title,
-                subtitle=row.subtitle,
-                export_9x16=out_916,
-                export_3x4=out_34,
-                style=(row.style_key or "gradient"),  # type: ignore[arg-type]
-            )
-            row.status = "succeeded"
-            row.duration_ms = (_t.perf_counter() - started) * 1000.0
-            row.result_9x16_url = out_916
-            row.result_3x4_url = out_34
-        except Exception as exc:  # pragma: no cover
-            row.status = "failed"
-            row.error = str(exc)
-        await session.commit()
+            loop = _asyncio.get_event_loop()
+            loop.create_task(process_cover_job(job_id, settings=settings))
+        except RuntimeError:
+            _asyncio.run(process_cover_job(job_id, settings=settings))
+
+    background.add_task(_runner)
 
 
 @router.post("/cover-jobs", response_model=CoverJobEnqueueResult, summary="异步入队封面生成任务")
@@ -339,8 +299,17 @@ async def enqueue_cover_job(
         job.video_ref = video_path
         await session.commit()
 
-    # Schedule background task
-    background.add_task(_process_cover_job, job.id, settings=settings)
+    # Schedule background task (or Celery if available)
+    import os as _os
+    if getattr(settings, "redis_url", None) or _os.environ.get("REDIS_URL"):
+        try:
+            from app.worker.celery_app import enqueue_cover_job_celery
+            if enqueue_cover_job_celery(job.id):
+                return CoverJobEnqueueResult(id=job.id, request_id=request_id, status="queued")
+        except Exception:
+            # Fallback to in-process background task
+            pass
+    _schedule_background_cover_job(background, job.id, settings=settings)
 
     return CoverJobEnqueueResult(id=job.id, request_id=request_id, status="queued")
 

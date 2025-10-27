@@ -33,6 +33,10 @@ media = [
   "Pillow>=10.0.0",
   "opencv-python>=4.8.0.74",
 ]
+worker = [
+  "celery>=5.3",
+  "redis>=4.5",
+]
 
 [tool.ruff]
 line-length = 100
