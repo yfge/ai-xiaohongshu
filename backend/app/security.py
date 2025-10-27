@@ -19,10 +19,10 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from app.core.config import Settings, get_settings
-from sqlalchemy import select, update  # noqa: F401
-from sqlalchemy.ext.asyncio import async_sessionmaker  # noqa: F401
-from app.db.session import get_session_maker  # noqa: F401
-from app.db import models  # noqa: F401
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import async_sessionmaker
+from app.db.session import get_session_maker
+from app.db import models
 
 
 # ---------------------
@@ -205,50 +205,69 @@ class ApiKeyStore:
 import json  # after annotations
 
 
-def get_api_key_store(settings: Settings = Depends(get_settings)) -> ApiKeyStore:
-    # Use file-backed store for now to keep sync interface in FastAPI endpoints and middlewares
+def get_api_key_store(settings: Settings = Depends(get_settings)) -> ApiKeyStore | "SQLApiKeyStore":
+    """Dependency returning appropriate API key store per settings.
+
+    - If DATABASE_URL is set, returns SQL-backed store (async methods)
+    - Otherwise returns file-backed JSONL store (sync methods)
+    """
+    if getattr(settings, "database_url", None):
+        session_maker = get_session_maker(settings)
+        return SQLApiKeyStore(session_maker)
     return ApiKeyStore(settings.api_key_store_path)
 
 
 def require_api_key(scopes: Iterable[str]) -> Callable:
     async def _dep(
         request: Request,
-        store: ApiKeyStore = Depends(get_api_key_store),
+        store: ApiKeyStore | SQLApiKeyStore = Depends(get_api_key_store),
+        settings: Settings = Depends(get_settings),
     ) -> ApiKeyRecord:
         header = request.headers.get("X-API-Key")
         if not header:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="缺少 API Key")
-        rec = store.verify_key(header)
+        # Support both sync and async store implementations; fallback to file store on SQL error
+        try:
+            rec = store.verify_key(header)
+            if hasattr(rec, "__await__"):
+                rec = await rec  # type: ignore[assignment]
+        except Exception:
+            rec = None
+        if not rec:
+            try:
+                fs = ApiKeyStore(settings.api_key_store_path)
+                rec = fs.verify_key(header)
+            except Exception:
+                rec = None
         if not rec:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API Key 无效")
         # scope check
         need = set(scopes)
         if need and not need.issubset(set(rec.scopes)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="权限不足")
-        store.touch_last_used(rec)
+        try:
+            touch = store.touch_last_used(rec)
+            if hasattr(touch, "__await__"):
+                await touch  # type: ignore[misc]
+        except Exception:
+            pass
         request.state.actor = {"type": "api_key", "id": rec.id}
         return rec
 
     return _dep
 
 
-class SQLApiKeyStore(ApiKeyStore):  # pragma: no cover - kept for future SQL migration
-    """SQL-backed API key store (same interface)."""
+class SQLApiKeyStore(ApiKeyStore):  # pragma: no cover - exercised via API tests
+    """SQL-backed API key store with async methods.
+
+    Methods mirror the file-backed store but are async. Callers should detect
+    coroutine return values and await accordingly (see require_api_key and admin routes).
+    """
 
     def __init__(self, session_maker: async_sessionmaker):  # type: ignore[override]
         self._session_maker = session_maker
 
-    def _noop(self):  # pragma: no cover - compatibility shim
-        return None
-
-    # Override JSONL methods with SQL implementations
-    def _read_all(self):  # type: ignore[override]
-        raise NotImplementedError
-
-    def _write_all(self, items):  # type: ignore[override]
-        raise NotImplementedError
-
-    def issue_key(self, *, name: str, scopes: Iterable[str]) -> tuple[ApiKeyRecord, str]:  # type: ignore[override]
+    async def issue_key(self, *, name: str, scopes: Iterable[str]) -> tuple[ApiKeyRecord, str]:  # type: ignore[override]
         prefix = os.urandom(6).hex()
         secret = os.urandom(24).hex()
         plaintext = f"{prefix}.{secret}"
@@ -263,49 +282,32 @@ class SQLApiKeyStore(ApiKeyStore):  # pragma: no cover - kept for future SQL mig
             created_at=datetime.now(timezone.utc).isoformat(),
         )
         scopes_json = {"scopes": rec.scopes} if rec.scopes else None
-        async def _insert() -> None:
-            async with self._session_maker() as session:
-                session.add(
-                    models.ApiKey(
-                        id=rec.id,
-                        name=rec.name,
-                        prefix=rec.prefix,
-                        hashed_key=rec.hashed_key,
-                        scopes=scopes_json,
-                        is_active=True,
-                    )
+        async with self._session_maker() as session:
+            session.add(
+                models.ApiKey(
+                    id=rec.id,
+                    name=rec.name,
+                    prefix=rec.prefix,
+                    hashed_key=rec.hashed_key,
+                    scopes=scopes_json,
+                    is_active=True,
                 )
-                await session.commit()
-        import asyncio as _asyncio
-        _asyncio.get_event_loop().run_until_complete(_insert())
+            )
+            await session.commit()
         return rec, plaintext
 
-    def verify_key(self, plaintext: str) -> ApiKeyRecord | None:  # type: ignore[override]
-        try:
-            prefix, _ = plaintext.split(".", 1)
-        except ValueError:
-            return None
-        hashed = hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
-
-        async def _query() -> ApiKeyRecord | None:
-            async with self._session_maker() as session:
-                row = (
-                    await session.execute(
-                        select(models.ApiKey).where(
-                            models.ApiKey.prefix == prefix,
-                            models.ApiKey.hashed_key == hashed,
-                            models.ApiKey.is_active == True,  # noqa: E712
-                        )
-                    )
-                ).scalar_one_or_none()
-                if not row:
-                    return None
-                scopes = []
-                if row.scopes and isinstance(row.scopes, dict):
-                    maybe = row.scopes.get("scopes")
-                    if isinstance(maybe, list):
-                        scopes = [str(s) for s in maybe]
-                return ApiKeyRecord(
+    async def list_keys(self) -> list[ApiKeyRecord]:  # type: ignore[override]
+        async with self._session_maker() as session:
+            rows = (await session.execute(select(models.ApiKey))).scalars().all()
+        items: list[ApiKeyRecord] = []
+        for row in rows:
+            scopes = []
+            if row.scopes and isinstance(row.scopes, dict):
+                maybe = row.scopes.get("scopes")
+                if isinstance(maybe, list):
+                    scopes = [str(s) for s in maybe]
+            items.append(
+                ApiKeyRecord(
                     id=row.id,
                     name=row.name,
                     prefix=row.prefix,
@@ -315,9 +317,64 @@ class SQLApiKeyStore(ApiKeyStore):  # pragma: no cover - kept for future SQL mig
                     created_at=row.created_at.isoformat() if row.created_at else datetime.now(timezone.utc).isoformat(),
                     last_used_at=row.last_used_at.isoformat() if row.last_used_at else None,
                 )
+            )
+        return items
 
-        import asyncio as _asyncio
-        return _asyncio.get_event_loop().run_until_complete(_query())
+    async def verify_key(self, plaintext: str) -> ApiKeyRecord | None:  # type: ignore[override]
+        try:
+            prefix, _ = plaintext.split(".", 1)
+        except ValueError:
+            return None
+        hashed = hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
+        async with self._session_maker() as session:
+            row = (
+                await session.execute(
+                    select(models.ApiKey).where(
+                        models.ApiKey.prefix == prefix,
+                        models.ApiKey.hashed_key == hashed,
+                        models.ApiKey.is_active == True,  # noqa: E712
+                    )
+                )
+            ).scalar_one_or_none()
+            if not row:
+                return None
+            scopes = []
+            if row.scopes and isinstance(row.scopes, dict):
+                maybe = row.scopes.get("scopes")
+                if isinstance(maybe, list):
+                    scopes = [str(s) for s in maybe]
+            return ApiKeyRecord(
+                id=row.id,
+                name=row.name,
+                prefix=row.prefix,
+                hashed_key=row.hashed_key,
+                scopes=scopes,
+                is_active=row.is_active,
+                created_at=row.created_at.isoformat() if row.created_at else datetime.now(timezone.utc).isoformat(),
+                last_used_at=row.last_used_at.isoformat() if row.last_used_at else None,
+            )
+
+    async def set_active(self, key_id: str, active: bool) -> bool:  # type: ignore[override]
+        async with self._session_maker() as session:
+            row = (
+                await session.execute(select(models.ApiKey).where(models.ApiKey.id == key_id))
+            ).scalar_one_or_none()
+            if not row:
+                return False
+            row.is_active = bool(active)
+            await session.commit()
+            return True
+
+    async def touch_last_used(self, rec: ApiKeyRecord) -> None:  # type: ignore[override]
+        async with self._session_maker() as session:
+            row = (
+                await session.execute(select(models.ApiKey).where(models.ApiKey.id == rec.id))
+            ).scalar_one_or_none()
+            if not row:
+                return None
+            row.last_used_at = datetime.now(timezone.utc)
+            await session.commit()
+            return None
 
     def touch_last_used(self, rec: ApiKeyRecord) -> None:  # type: ignore[override]
         async def _update() -> None:

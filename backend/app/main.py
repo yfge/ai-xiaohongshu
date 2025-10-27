@@ -7,7 +7,8 @@ from app.api.routes import api_router
 from app.core.config import get_settings
 from app.services.audit import AuditRecord
 from app.deps import get_audit_logger
-from app.security import ApiKeyStore
+from app.security import ApiKeyStore, SQLApiKeyStore
+from app.db.session import get_session_maker
 from app.services.rate_limit import RateLimiter, RateConfig
 
 # Global limiter instance to ensure persistence across requests in tests and dev
@@ -48,9 +49,17 @@ async def rate_limit_middleware(request: Request, call_next):
     if not api_key:
         return await call_next(request)
 
-    # Verify key minimally to ensure validity
-    store = ApiKeyStore(settings.api_key_store_path)
-    rec = store.verify_key(api_key)
+    # Verify key minimally to ensure validity (supports JSONL or SQL stores)
+    rec = None
+    if settings.database_url:
+        try:
+            store = SQLApiKeyStore(get_session_maker(settings))
+            rec = await store.verify_key(api_key)
+        except Exception:
+            rec = None
+    if rec is None:
+        store = ApiKeyStore(settings.api_key_store_path)
+        rec = store.verify_key(api_key)
     if not rec:
         # Let route dependency handle invalid key for consistent error
         return await call_next(request)
